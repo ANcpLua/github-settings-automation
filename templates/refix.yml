@@ -1,0 +1,27 @@
+# Template: copy this file into a target repo at .github/workflows/refix.yml
+#
+# Before adoption:
+#   1. Replace <COMMIT_SHA> with a pinned commit SHA from HappyOnigiri/Refix.
+#   2. This action requires a CLASSIC PAT with scopes:
+#        repo, workflow, read:org, read:discussion
+#      Classic PATs cannot be repo-scoped the way fine-grained PATs can.
+#      Store it as REFIX_CLASSIC_PAT in the target repo's secrets.
+#   3. CLAUDE_CODE_OAUTH_TOKEN is generated via `claude setup-token`.
+#   4. Label-gated by design. Do NOT add a schedule trigger and do NOT let
+#      the action auto-merge — it writes non-deterministic code via Claude.
+
+name: refix
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  refix:
+    if: github.event.label.name == 'refix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: HappyOnigiri/Refix@<COMMIT_SHA>
+        env:
+          GH_TOKEN: ${{ secrets.REFIX_CLASSIC_PAT }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

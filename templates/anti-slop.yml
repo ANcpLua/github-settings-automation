@@ -1,0 +1,28 @@
+# Template: copy this file into a target repo at .github/workflows/anti-slop.yml
+#
+# Before adoption:
+#   1. Replace <COMMIT_SHA> with a pinned commit SHA from peakoss/anti-slop.
+#      Do NOT use the floating @v0 tag — third-party action with pull-request
+#      write permission is a supply-chain risk surface.
+#   2. Keep close-pr: false for at least two weeks. Audit which of your own
+#      PRs would have been closed before flipping to true.
+
+name: anti-slop
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  anti-slop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peakoss/anti-slop@<COMMIT_SHA>
+        with:
+          max-failures: 4
+          close-pr: false

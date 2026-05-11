@@ -1,0 +1,48 @@
+name: Bootstrap profile repos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate token
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "REPO_SETTINGS_PAT secret is missing"
+            exit 1
+          fi
+
+      - name: Personal profile README repo
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+        run: |
+          set -euo pipefail
+          if gh repo view ANcpLua/ANcpLua >/dev/null 2>&1; then
+            echo "ANcpLua/ANcpLua already exists"
+          else
+            gh repo create ANcpLua/ANcpLua \
+              --public \
+              --add-readme \
+              --description "Profile README"
+          fi
+
+      - name: Org public overview repo
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+        run: |
+          set -euo pipefail
+          if gh repo view O-ANcppLua/.github >/dev/null 2>&1; then
+            echo "O-ANcppLua/.github already exists"
+          else
+            gh repo create O-ANcppLua/.github \
+              --public \
+              --add-readme \
+              --description "Organization profile README"
+          fi
