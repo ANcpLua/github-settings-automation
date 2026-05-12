@@ -26,6 +26,16 @@ No third-party auto-merge App, no per-repo `destructive-auto-merge.yml`. The fle
 - **Renovate** opens dependency PRs with `platformAutomerge: true` (see [`ANcpLua/renovate-config`](https://github.com/ANcpLua/renovate-config) — the shared baseline most repos extend). Renovate flips GitHub's native auto-merge on the PR; GitHub merges when branch protection's required checks pass.
 - **CodeRabbit is advisory.** `templates/coderabbit.yaml` ships with `request_changes_workflow: false` so the bot comments without ever submitting a formal `CHANGES_REQUESTED` review. That is what eliminated the legacy `--admin`-bypass workflow surface; you cannot get blocked by a sticky review that never happens.
 
+The combo is intentionally **modular**: Renovate decides *which* PRs get auto-flipped, branch protection decides what "green" means, CodeRabbit advises in parallel. None of them is a single point of control — that is the whole reason the owned-App plan was dropped.
+
+### Scenario A — does NOT merge (and shouldn't)
+
+Renovate opens a `Microsoft.Extensions.AI` minor bump (`10.5.2 → 10.6.0`). `platformAutomerge: true` flips native auto-merge on. The new minor introduces a breaking API change; the **Backend (.NET)** required check fails. Native auto-merge waits indefinitely for a green required check — there is no `--admin` bypass. CodeRabbit posts comments noting the call-site change but does not block (because it cannot). PR sits open until a human fixes the call site or closes the bump. This is exactly what the legacy destructive tier used to admin-merge through, and exactly what we wanted to stop.
+
+### Scenario B — does merge (the modular dynamic)
+
+Renovate opens a `peakoss/anti-slop` patch bump. `renovate-config` matches `updateTypes: ["patch"]` → `automerge: true`; `platformAutomerge: true` flips native auto-merge on. CI runs (anti-slop scans itself, all checks green) within ~2 min. Branch protection is satisfied. GitHub squash-merges, deletes the branch. Zero human input from open to merged. Same path works for any trusted opener (Renovate / Dependabot / owner / agents) — the difference between A and B is the CI signal, not the actor.
+
 ## Templates
 
 `templates/` files are **not** executed from this repo. They are copied into target repos. Workflow YAMLs ship with explicit pinned SHAs (no floating tags — supply-chain hygiene); the CodeRabbit template ships as a complete config.
