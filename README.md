@@ -53,8 +53,8 @@ PATs are scoped to one resource owner. Two PATs are required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` on All repositories | personal-side steps in both workflows |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories | personal-side steps in both workflows |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
 | `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
 | `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | target repo only, if `refix.yml` is adopted |
 
@@ -64,12 +64,30 @@ organization-scoped endpoint.
 
 Both PATs need `Contents: Read and write` because the `.coderabbit.yaml`
 seed step writes a new file via `PUT /repos/{owner}/{repo}/contents/...`,
-which `Administration` alone does not authorize. Run `25735412052` is the
-canonical example of what happens without it — the job exits success but
-every seed PUT logs `HTTP 403 Resource not accessible by personal access
-token` and is converted to a `::warning::` so the job stays green. Audit
-the run logs (not the green tick) until you are sure both PATs carry the
-right scope.
+which `Administration` alone does not authorize.
+
+Both PATs also need `Pull requests: Read and write` because the sync
+script falls back to opening a PR (via `gh pr create`) when a repo's
+ruleset blocks direct writes to the default branch, and because the
+post-sync trap calls
+`PUT /repos/.../pulls/N/reviews/M/dismissals` to unstick PRs with
+stale `CHANGES_REQUESTED` reviews from coderabbitai[bot]. Without it,
+both the `gh pr create` and the dismissal calls silently 403 — the
+workflow stays green via `::warning::` lines but does nothing.
+
+Two canonical mis-scope examples from this repo's run history:
+
+- Run `25735412052` — PATs had `Administration` only. Every seed PUT
+  hit `HTTP 403 Resource not accessible by personal access token`;
+  no `.coderabbit.yaml` files were written.
+- Run `25752657861` — PATs had `Administration` + `Contents` but not
+  `Pull requests`. The sync step's ruleset-fallback path failed at
+  `gh pr create` for `ANcpLua/ANcpLua.NET.Sdk` and the dismissal trap
+  logged zero `dismissed` lines, so PRs #143 and #145 stayed BLOCKED
+  by stale CodeRabbit `CHANGES_REQUESTED` reviews.
+
+Audit the run logs (not the green tick) until you are sure both PATs
+carry every scope above.
 
 ## Manual one-offs (do not automate)
 
