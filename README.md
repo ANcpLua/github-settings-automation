@@ -69,8 +69,8 @@ PATs are scoped to one resource owner. Two PATs are required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories | personal-side steps in both workflows |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on All repositories | personal-side steps in both workflows |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
 | `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
 | `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | **central** (this repo) — consumed by `pr-heal.yml`. Also valid in target repos that adopt `refix.yml`. |
 
@@ -91,7 +91,38 @@ stale `CHANGES_REQUESTED` reviews from coderabbitai[bot]. Without it,
 both the `gh pr create` and the dismissal calls silently 403 — the
 workflow stays green via `::warning::` lines but does nothing.
 
-Two canonical mis-scope examples from this repo's run history:
+Both PATs need `Workflows: Read and write` because the
+`coderabbit-autofix.yml` seed step writes a workflow file via
+`PUT /repos/{r}/contents/.github/workflows/coderabbit-autofix.yml`,
+and GitHub gates writes to `.github/workflows/*` behind an additional
+permission beyond `Contents: write`. `pr-heal.yml`'s heal job also
+pushes to PR branches that may include workflow file changes.
+
+Both PATs need `Issues: Read and write` because `pr-heal.yml`'s
+outcome-comment step posts to `/repos/{r}/issues/{n}/comments`
+(GitHub treats PR conversation comments as issue comments at the API
+level — yes, even on a pull request). Without this scope the outcome
+comment 403s.
+
+### Stop adding scopes one by one — the alternative
+
+Every new automation surface we add tends to surface another required
+fine-grained PAT scope (this is the **third** scope-escalation in 24 h:
+Contents → Pull requests → Workflows, with Issues now layered in). The
+two paths to end the iteration:
+
+1. **Add every scope above in one update.** That is what the table now
+   captures. Future automation we add is likely to need: Actions
+   (workflow run management), Code scanning alerts, Custom properties.
+   Add those proactively if you want to never hit this again.
+2. **Switch to a single GitHub App** installed on both `ANcpLua` and
+   `O-ANcppLua` with all the permissions above set at install time.
+   App tokens auto-rotate and the permission set is declared once in
+   the App manifest. This is the canonical "no more scope dance"
+   solution and aligns with [[qyl-self-healing-vision]] — no recurring
+   human-touch events for token / scope maintenance.
+
+Three canonical mis-scope examples from this repo's run history:
 
 - Run `25735412052` — PATs had `Administration` only. Every seed PUT
   hit `HTTP 403 Resource not accessible by personal access token`;
@@ -101,6 +132,11 @@ Two canonical mis-scope examples from this repo's run history:
   `gh pr create` for `ANcpLua/ANcpLua.NET.Sdk` and the dismissal trap
   logged zero `dismissed` lines, so PRs #143 and #145 stayed BLOCKED
   by stale CodeRabbit `CHANGES_REQUESTED` reviews.
+- Run `25765252964` — PATs had `Administration` + `Contents` + `Pull
+  requests` but not `Workflows`. Every `coderabbit-autofix.yml` seed
+  hit `HTTP 403` because GitHub gates writes to `.github/workflows/*`
+  behind a separate workflow-files permission. 340 attempted seeds,
+  0 actual writes.
 
 Audit the run logs (not the green tick) until you are sure both PATs
 carry every scope above.
