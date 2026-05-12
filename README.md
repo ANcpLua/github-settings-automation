@@ -31,11 +31,19 @@ safe defaults.
 
 ## Required secrets
 
-| Secret | Type | Where | Used by |
+A single fine-grained PAT cannot span both a user and an org — fine-grained
+PATs are scoped to one resource owner. Two PATs are required.
+
+| Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT` | fine-grained PAT, `Administration: read/write` on `ANcpLua/*` and `O-ANcppLua/*` | this repo | both workflows |
-| `REFIX_CLASSIC_PAT` | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted | `refix.yml` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | from `claude setup-token` | target repo only, if `refix.yml` is adopted | `refix.yml` |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` on All repositories | personal-side steps in both workflows |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
+| `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
+| `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | target repo only, if `refix.yml` is adopted |
+
+The org PAT needs Organization-level `Administration: write` because creating
+a new repo under the org hits `POST /orgs/{org}/repos`, which is an
+organization-scoped endpoint.
 
 ## Manual one-offs (do not automate)
 

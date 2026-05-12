@@ -10,18 +10,29 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate token
+      - name: Validate user PAT
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "REPO_SETTINGS_PAT secret is missing"
+            echo "REPO_SETTINGS_PAT_USER secret is missing"
             exit 1
           fi
+          gh api /user --jq .login
+
+      - name: Validate org PAT
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "REPO_SETTINGS_PAT_ORG secret is missing"
+            exit 1
+          fi
+          gh api /orgs/O-ANcppLua --jq .login
 
       - name: Personal profile README repo
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           set -euo pipefail
           if gh repo view ANcpLua/ANcpLua >/dev/null 2>&1; then
@@ -35,7 +46,7 @@ jobs:
 
       - name: Org public overview repo
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
         run: |
           set -euo pipefail
           if gh repo view O-ANcppLua/.github >/dev/null 2>&1; then

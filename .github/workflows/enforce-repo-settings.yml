@@ -9,42 +9,60 @@ permissions:
   contents: read
 
 jobs:
-  enforce:
+  enforce-user:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate token
+      - name: Validate user PAT
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "REPO_SETTINGS_PAT secret is missing"
+            echo "REPO_SETTINGS_PAT_USER secret is missing"
             exit 1
           fi
 
-      - name: Patch recently-created repositories
+      - name: Patch recently-created personal repos
         env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT }}
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           set -euo pipefail
-
           SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
           echo "Cutoff: $SINCE"
+          gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+            --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.created_at >= \"$SINCE\") | .full_name" \
+          | while read -r repo; do
+              [ -z "$repo" ] && continue
+              echo "Patching $repo"
+              gh api "repos/$repo" --method PATCH \
+                -F delete_branch_on_merge=true \
+                -F allow_auto_merge=true
+            done
 
-          patch_repo() {
-            local repo="$1"
-            echo "Patching $repo"
-            gh api "repos/$repo" --method PATCH \
-              -F delete_branch_on_merge=true \
-              -F allow_auto_merge=true
-          }
+  enforce-org:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate org PAT
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "REPO_SETTINGS_PAT_ORG secret is missing"
+            exit 1
+          fi
 
-          {
-            gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.created_at >= \"$SINCE\") | .full_name"
-            gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.created_at >= \"$SINCE\") | .full_name"
-          } | sort -u | while read -r repo; do
-            if [ -n "$repo" ]; then
-              patch_repo "$repo"
-            fi
-          done
+      - name: Patch recently-created org repos
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -euo pipefail
+          SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "Cutoff: $SINCE"
+          gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+            --jq ".[] | select(.created_at >= \"$SINCE\") | .full_name" \
+          | while read -r repo; do
+              [ -z "$repo" ] && continue
+              echo "Patching $repo"
+              gh api "repos/$repo" --method PATCH \
+                -F delete_branch_on_merge=true \
+                -F allow_auto_merge=true
+            done
