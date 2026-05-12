@@ -1,0 +1,247 @@
+# PR auto-heal — fleet-wide AI fallback chain.
+#
+# Mission (see qyl-self-healing-vision in CLAUDE memory):
+# every "needs human" PR-merge gate is a defect. This workflow scans
+# every active repo under ANcpLua/* + O-ANcppLua/* every 15 minutes,
+# finds PRs that are stuck (merge conflicts, failing required checks,
+# or sticky `CHANGES_REQUESTED` from a bot), and walks an AI provider
+# fallback chain until one of them resolves the block.
+#
+# Provider chain (in order, falling through on 429 / unavailable):
+#   1. CodeRabbit autofix — `@coderabbitai autofix` comment. Free,
+#      uses CR's own quota; resolves CR-flagged review feedback.
+#   2. Claude Code direct — `anthropics/claude-code-action@v1` running
+#      against the PR's checkout. Resolves merge conflicts + CI fixes
+#      autonomously with Anthropic quota.
+#   3. (future) OpenAI Codex CLI on `OPENAI_API_KEY`.
+#   4. (future) GitHub Copilot Workspace agent.
+#
+# Surfacing failure: if every provider 429s or genuinely fails, post a
+# precise comment on the PR ("all four providers exhausted; next retry
+# at $time") so the human-touch event is informed, not a mystery.
+#
+# Secrets this workflow needs in github-settings-automation:
+#   - REPO_SETTINGS_PAT_USER + REPO_SETTINGS_PAT_ORG (already set)
+#     with Pull requests: Read and write + Contents: Read and write
+#     for cross-repo branch pushes and PR comments.
+#   - CLAUDE_CODE_OAUTH_TOKEN — generated via `claude setup-token`.
+#     Single token at the central repo replaces the per-repo secret
+#     pattern in templates/refix.yml.
+
+name: PR auto-heal
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Specific PR to heal as owner/repo#N (leave blank to scan fleet)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-heal-${{ github.event.inputs.target || 'fleet' }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: Scan fleet for stuck PRs
+    runs-on: ubuntu-latest
+    outputs:
+      targets_json: ${{ steps.find.outputs.targets_json }}
+    steps:
+      - name: Determine targets
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          GH_TOKEN_ORG: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+          EXPLICIT: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          if [ -n "${EXPLICIT:-}" ]; then
+            # Format: owner/repo#N — explicit single-PR dispatch.
+            repo="${EXPLICIT%#*}"
+            pr="${EXPLICIT#*#}"
+            jq -nc --arg repo "$repo" --argjson pr "$pr" \
+              '[{repo:$repo, pr:$pr, why:"explicit"}]' > targets.json
+          else
+            # Fleet scan. A PR is "stuck" when ALL of:
+            #   - state OPEN, not draft
+            #   - auto-merge is enabled (signals "should merge") OR carries
+            #     the `auto-resolve` label (explicit opt-in)
+            #   - mergeStateStatus is BEHIND / DIRTY / BLOCKED / UNSTABLE
+            #     (i.e. something concrete is blocking)
+            collect_stuck() {
+              local repo="$1"
+              gh pr list --repo "$repo" --state open --limit 100 \
+                --json number,mergeStateStatus,autoMergeRequest,labels,isDraft 2>/dev/null \
+                | jq -c --arg repo "$repo" \
+                  '.[] | select(.isDraft == false)
+                       | select(.autoMergeRequest != null or (any(.labels[]?.name; . == "auto-resolve")))
+                       | select(.mergeStateStatus == "BEHIND" or .mergeStateStatus == "DIRTY"
+                              or .mergeStateStatus == "BLOCKED" or .mergeStateStatus == "UNSTABLE")
+                       | {repo:$repo, pr:.number, why:.mergeStateStatus}' \
+                || true
+            }
+
+            : > stuck.ndjson
+            GH_TOKEN="$GH_TOKEN" gh api --paginate "/user/repos?per_page=100" \
+              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+              | while read -r repo; do
+                  [ -z "$repo" ] && continue
+                  collect_stuck "$repo" >> stuck.ndjson
+                done
+
+            GH_TOKEN="$GH_TOKEN_ORG" gh api --paginate "/orgs/O-ANcppLua/repos?per_page=100" \
+              --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+              | while read -r repo; do
+                  [ -z "$repo" ] && continue
+                  GH_TOKEN="$GH_TOKEN_ORG" collect_stuck "$repo" >> stuck.ndjson
+                done
+
+            jq -sc . stuck.ndjson > targets.json
+          fi
+          echo "Targets:"
+          jq . targets.json
+          echo "targets_json=$(jq -c . targets.json)" >> "$GITHUB_OUTPUT"
+
+  heal:
+    name: Heal ${{ matrix.target.repo }}#${{ matrix.target.pr }}
+    needs: scan
+    if: needs.scan.outputs.targets_json != '[]' && needs.scan.outputs.targets_json != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        target: ${{ fromJSON(needs.scan.outputs.targets_json) }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Resolve owner-scoped token
+        id: token
+        env:
+          REPO: ${{ matrix.target.repo }}
+        run: |
+          set -euo pipefail
+          owner="${REPO%%/*}"
+          case "$owner" in
+            ANcpLua) echo "secret=REPO_SETTINGS_PAT_USER" >> "$GITHUB_OUTPUT" ;;
+            O-ANcppLua) echo "secret=REPO_SETTINGS_PAT_ORG" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Unsupported owner: $owner"; exit 1 ;;
+          esac
+
+      # ─── Strategy 1: CodeRabbit autofix (free, fastest, narrowest) ──────
+      # CR's autofix is good at responding to its own review feedback. It
+      # cannot resolve merge conflicts, but if the block is BLOCKED with a
+      # sticky CR review, asking CR to retry can shake it loose.
+      - name: CodeRabbit autofix
+        id: cr_autofix
+        if: matrix.target.why == 'BLOCKED'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          REPO: ${{ matrix.target.repo }}
+          PR: ${{ matrix.target.pr }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/issues/$PR/comments" --method POST \
+            -f "body=@coderabbitai autofix" \
+            --silent && echo "cr_invoked=true" >> "$GITHUB_OUTPUT" \
+                     || echo "cr_invoked=false" >> "$GITHUB_OUTPUT"
+
+      # ─── Strategy 2: Claude Code direct ─────────────────────────────────
+      # The heavy lifter. Checks out the PR branch, runs Claude with a
+      # precise diagnostic prompt, lets it commit + push the fix. Works
+      # for merge conflicts AND failing CI.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ matrix.target.repo }}
+          token: ${{ secrets[steps.token.outputs.secret] }}
+          fetch-depth: 0
+
+      - name: Checkout the PR branch
+        env:
+          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          PR: ${{ matrix.target.pr }}
+        run: |
+          set -euo pipefail
+          gh pr checkout "$PR" --force
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-settings-automation[bot]"
+          git config user.email "automation+settings@ancplua.dev"
+
+      - name: Claude Code — resolve block
+        id: claude
+        continue-on-error: true
+        uses: anthropics/claude-code-action@b112a167ee1f4aa7ad2e3adae255c8c8c69e740b # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are running headless in CI. PR #${{ matrix.target.pr }} on
+            ${{ matrix.target.repo }} is currently in mergeStateStatus
+            "${{ matrix.target.why }}". The PR branch is checked out in
+            the working directory and the local git is configured to push
+            back to it.
+
+            Your task:
+            1. Diagnose what is blocking the merge:
+               - BEHIND / DIRTY → the branch needs to absorb main. Rebase
+                 onto the default branch and resolve any conflicts. Prefer
+                 the PR's intent for behavioural code; prefer main for
+                 unrelated infra/version bumps.
+               - BLOCKED → required reviewer has CHANGES_REQUESTED, or a
+                 required status check is failing. If the requested change
+                 is bot-flagged and the new posture (CodeRabbit advisory,
+                 see qyl-self-healing-vision in CLAUDE memory) makes the
+                 verdict stale, leave it — the dismissal layer handles it.
+                 If the required check is a real test failure, fix the
+                 code so the test passes.
+               - UNSTABLE → at least one required check failed. Inspect the
+                 failure, fix the code, commit, push.
+            2. Push the result to the PR branch (it is the current branch).
+            3. Do NOT change the PR title/description and do NOT add new
+               files outside the scope strictly needed to resolve the block.
+
+            Hard constraints:
+            - No --no-verify, no --force-with-lease against another author.
+            - Run repo-local test/lint commands (the repo's CLAUDE.md, if
+              present, lists them). Re-run them after your fix.
+            - If you cannot resolve in <= 30 turns of work, exit and leave
+              the branch as you found it (no half-fixes).
+
+      # ─── Strategy 3 + 4 (future): Codex / Copilot agents ────────────────
+      # When Claude exhausts quota (action exits non-zero with a 429-shape
+      # message), this is where Codex (OPENAI_API_KEY) and Copilot
+      # Workspace would be invoked in the same fallback pattern. Tracked
+      # in qyl-self-healing-vision; add when the first 429 actually fires
+      # so we have a real signature to detect.
+
+      # ─── Surface result ─────────────────────────────────────────────────
+      - name: Report outcome on the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          REPO: ${{ matrix.target.repo }}
+          PR: ${{ matrix.target.pr }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          CR_INVOKED: ${{ steps.cr_autofix.outputs.cr_invoked || 'skipped' }}
+        run: |
+          set -euo pipefail
+          if [ "$CLAUDE_OUTCOME" = "success" ]; then
+            echo "Healed ${REPO}#${PR} via Claude"
+            exit 0
+          fi
+          # Genuine "all providers failed" surface. Make it a one-line
+          # comment on the PR so the human-touch event is informed.
+          gh api "repos/$REPO/issues/$PR/comments" --method POST \
+            --silent \
+            -f "body=pr-heal: providers tried — CodeRabbit autofix=${CR_INVOKED}, Claude=${CLAUDE_OUTCOME}. None resolved the block (state was ${{ matrix.target.why }}). Next sweep in 15 min; if this is recurring, the Codex/Copilot fallback tiers are tracked in [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml)." \
+            || echo "::warning::Could not post outcome comment on $REPO#$PR"

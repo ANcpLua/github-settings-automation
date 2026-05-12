@@ -16,7 +16,8 @@ repo transfers, secret rotation.
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 09:00 UTC) + dispatch | PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`, and seeds `templates/coderabbit.yaml` into any target that lacks a `.coderabbit.yaml`. Idempotent. Default mode = last 8 days; pass `full_sweep: true` on dispatch to hit every active repo. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 09:00 UTC) + dispatch | PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`, and runs `scripts/sync-coderabbit-config.sh` per repo to seed/flip `.coderabbit.yaml` (seed if missing; flip `request_changes_workflow: true → false` if present; ruleset-blocked repos get a PR with auto-merge enabled; stale bot reviews dismissed on every exit). Idempotent. Default mode = last 8 days; pass `full_sweep: true` on dispatch to hit every active repo. |
+| `pr-heal.yml` | every 15 min cron + dispatch | Fleet-wide PR auto-heal. Scans every active repo for stuck PRs (auto-merge enabled but `BEHIND` / `DIRTY` / `BLOCKED` / `UNSTABLE`) and walks the AI provider fallback chain — CodeRabbit autofix comment → Claude Code direct (`anthropics/claude-code-action@v1`) → Codex / Copilot (planned) — until one resolves. If all providers exhaust, posts a precise outcome comment on the PR rather than failing silently. Targets a single PR via the `target` input (format `owner/repo#N`) for ad-hoc dispatch. |
 
 ## Auto-merge posture
 
@@ -35,6 +36,21 @@ Renovate opens a `Microsoft.Extensions.AI` minor bump (`10.5.2 → 10.6.0`). `pl
 ### Scenario B — does merge (the modular dynamic)
 
 Renovate opens a `peakoss/anti-slop` patch bump. `renovate-config` matches `updateTypes: ["patch"]` → `automerge: true`; `platformAutomerge: true` flips native auto-merge on. CI runs (anti-slop scans itself, all checks green) within ~2 min. Branch protection is satisfied. GitHub squash-merges, deletes the branch. Zero human input from open to merged. Same path works for any trusted opener (Renovate / Dependabot / owner / agents) — the difference between A and B is the CI signal, not the actor.
+
+## PR self-healing — closing the "needs human" gap
+
+Scenario A above is intentional only if the human stepping in is fast and cheap. For a solo-dev mission this is still a hole: a Renovate minor bump with one breaking call-site shouldn't sit open until someone notices. `pr-heal.yml` is the layer that closes the gap.
+
+Every 15 minutes (and on-demand via `workflow_dispatch`), the workflow scans every active repo under `ANcpLua/*` + `O-ANcppLua/*` for PRs that are open, not draft, have auto-merge enabled (or carry the `auto-resolve` label), and have a `mergeStateStatus` of `BEHIND`, `DIRTY`, `BLOCKED`, or `UNSTABLE`. For each match it walks an **AI provider fallback chain**:
+
+1. **CodeRabbit autofix** — `@coderabbitai autofix` comment. Free, uses CR's quota. Resolves bot-flagged review feedback; can't rebase.
+2. **Claude Code direct** — `anthropics/claude-code-action@v1` running against the PR's checkout. Diagnoses the block, rebases if needed, fixes failing tests, pushes back to the PR branch.
+3. *(planned)* **OpenAI Codex CLI** on `OPENAI_API_KEY` once a Claude 429 actually fires.
+4. *(planned)* **GitHub Copilot Workspace** agent as final tier.
+
+If every tier exhausts, the workflow comments on the PR with the exact provider state so the human-touch event is informed, not a mystery. **A `pr-heal` outcome comment is the only legitimate signal that a human is required.**
+
+The single new secret required at the central repo is `CLAUDE_CODE_OAUTH_TOKEN` (run `claude setup-token`). Cross-repo branch pushes reuse `REPO_SETTINGS_PAT_USER` / `_ORG`, which already have `Pull requests: Read and write` from the migration story.
 
 ## Templates
 
@@ -56,7 +72,7 @@ PATs are scoped to one resource owner. Two PATs are required.
 | `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories | personal-side steps in both workflows |
 | `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
 | `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
-| `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | target repo only, if `refix.yml` is adopted |
+| `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | **central** (this repo) — consumed by `pr-heal.yml`. Also valid in target repos that adopt `refix.yml`. |
 
 The org PAT needs Organization-level `Administration: write` because creating
 a new repo under the org hits `POST /orgs/{org}/repos`, which is an
