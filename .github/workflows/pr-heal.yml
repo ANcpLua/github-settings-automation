@@ -48,6 +48,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ─── Job 0: auto-enable native auto-merge on trusted-author mergeable PRs ───
+  #
+  # The "owner forgets to click auto-merge" failure mode. Paperless#11/13/14
+  # were all CLEAN MERGEABLE with no failing checks but sat open because
+  # `autoMergeRequest` was null — nobody flipped the per-PR switch. Renovate
+  # PRs auto-flip via `platformAutomerge: true`; everyone else has to remember.
+  # This job removes the need to remember.
+  auto-enable-merge:
+    name: Auto-enable native auto-merge on trusted-author mergeable PRs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Scan + enable
+        env:
+          GH_TOKEN_USER: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          GH_TOKEN_ORG: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -uo pipefail
+          TRUSTED='^(ANcpLua|renovate\[bot\]|dependabot\[bot\]|copilot\[bot\]|coderabbitai\[bot\]|jules\[bot\]|claude-code\[bot\]|github-actions\[bot\])$'
+          enabled=0
+          direct_merged=0
+          skipped_no_protection=0
+
+          process_repo() {
+            local repo="$1"
+            gh pr list --repo "$repo" --state open --limit 100 \
+              --json number,author,isDraft,mergeStateStatus,autoMergeRequest 2>/dev/null \
+              | jq -c '.[] | select(.isDraft == false) | select(.autoMergeRequest == null) | select(.mergeStateStatus == "CLEAN" or .mergeStateStatus == "UNSTABLE")' \
+              | while read -r pr; do
+                  author="$(jq -r '.author.login' <<<"$pr")"
+                  n="$(jq -r '.number' <<<"$pr")"
+                  state="$(jq -r '.mergeStateStatus' <<<"$pr")"
+                  if ! [[ "$author" =~ $TRUSTED ]]; then
+                    continue
+                  fi
+                  out="$(gh pr merge "$n" --repo "$repo" --auto --squash --delete-branch 2>&1)"
+                  rc=$?
+                  if [ $rc -eq 0 ]; then
+                    echo "$repo#$n: auto-merge enabled (state=$state, author=$author)"
+                  elif grep -q 'required protected branch rules' <<<"$out"; then
+                    echo "::warning::$repo#$n: cannot enable native auto-merge — branch protection missing on default branch. Add minimal protection (require 1 status check) or this PR will need manual merge."
+                  elif grep -q 'clean status' <<<"$out"; then
+                    # CLEAN + no auto-merge needed → the PR is already mergeable right now.
+                    # Native auto-merge can't enable on CLEAN PRs (would merge instantly anyway).
+                    # We DON'T direct-merge from automation; owner can still push more commits.
+                    echo "$repo#$n: ready to merge now (author can click 'Squash and merge', or push more if not done)"
+                  else
+                    echo "::warning::$repo#$n: gh pr merge --auto failed: $(head -c 200 <<<"$out")"
+                  fi
+                done
+          }
+
+          GH_TOKEN="$GH_TOKEN_USER" gh api --paginate "/user/repos?per_page=100" \
+            --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+            | while read -r repo; do
+                [ -z "$repo" ] && continue
+                GH_TOKEN="$GH_TOKEN_USER" process_repo "$repo"
+              done
+
+          GH_TOKEN="$GH_TOKEN_ORG" gh api --paginate "/orgs/O-ANcppLua/repos?per_page=100" \
+            --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+            | while read -r repo; do
+                [ -z "$repo" ] && continue
+                GH_TOKEN="$GH_TOKEN_ORG" process_repo "$repo"
+              done
+
   scan:
     name: Scan fleet for stuck PRs
     runs-on: ubuntu-latest

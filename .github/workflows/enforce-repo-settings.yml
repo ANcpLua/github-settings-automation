@@ -78,6 +78,34 @@ jobs:
               || echo "::warning::sync-coderabbit-config.sh exited non-zero for $repo"
           done < targets.txt
 
+      # Seed coderabbit-autofix.yml into every repo that has a .coderabbit.yaml
+      # (i.e. repos where CR autofix would actually do something). Skip-if-exists
+      # so per-repo customizations stay. Ruleset-protected repos warn and skip;
+      # they can adopt manually or via a future PR-fallback.
+      - name: Sync coderabbit-autofix.yml (seed if .coderabbit.yaml exists and workflow missing)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -uo pipefail
+          [ -f templates/coderabbit-autofix.yml ] || { echo "templates/coderabbit-autofix.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/coderabbit-autofix.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            # Only seed where CodeRabbit is actually configured
+            if ! gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
+              continue
+            fi
+            if gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has coderabbit-autofix.yml"
+              continue
+            fi
+            echo "Seeding $repo with coderabbit-autofix.yml"
+            gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --method PUT --silent \
+              -f "message=chore: seed coderabbit-autofix.yml from github-settings-automation" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
+          done < targets.txt
+
   enforce-org:
     runs-on: ubuntu-latest
     steps:
@@ -140,4 +168,30 @@ jobs:
             esac
             scripts/sync-coderabbit-config.sh "$repo" templates/coderabbit.yaml \
               || echo "::warning::sync-coderabbit-config.sh exited non-zero for $repo"
+          done < targets.txt
+
+      - name: Sync coderabbit-autofix.yml (seed if .coderabbit.yaml exists and workflow missing)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -uo pipefail
+          [ -f templates/coderabbit-autofix.yml ] || { echo "templates/coderabbit-autofix.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/coderabbit-autofix.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
+            esac
+            if ! gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
+              continue
+            fi
+            if gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has coderabbit-autofix.yml"
+              continue
+            fi
+            echo "Seeding $repo with coderabbit-autofix.yml"
+            gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --method PUT --silent \
+              -f "message=chore: seed coderabbit-autofix.yml from github-settings-automation" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
           done < targets.txt
