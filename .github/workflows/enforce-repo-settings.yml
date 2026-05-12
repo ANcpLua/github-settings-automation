@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
+    inputs:
+      full_sweep:
+        description: "Sweep ALL active repos (else just last 8 days)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,22 +27,62 @@ jobs:
           fi
           gh api /user --jq .login
 
-      - name: Patch recently-created personal repos
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve target user repos
+        id: targets
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          FULL_SWEEP: ${{ inputs.full_sweep || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$FULL_SWEEP" = "true" ]; then
+            echo "Mode: full sweep (all active ANcpLua/* repos)"
+            gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+              > targets.txt
+          else
+            SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "Mode: incremental (since $SINCE)"
+            gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+              --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+              > targets.txt
+          fi
+          echo "Targets:"
+          cat targets.txt
+
+      - name: Patch repo settings (delete_branch_on_merge + allow_auto_merge)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           set -euo pipefail
-          SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
-          echo "Cutoff: $SINCE"
-          gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-            --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
-          | while read -r repo; do
-              [ -z "$repo" ] && continue
-              echo "Patching $repo"
-              gh api "repos/$repo" --method PATCH --silent \
-                -F delete_branch_on_merge=true \
-                -F allow_auto_merge=true
-            done
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            echo "Patching $repo"
+            gh api "repos/$repo" --method PATCH --silent \
+              -F delete_branch_on_merge=true \
+              -F allow_auto_merge=true
+          done < targets.txt
+
+      - name: Sync .coderabbit.yaml if missing
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -euo pipefail
+          [ -f templates/coderabbit.yaml ] || { echo "templates/coderabbit.yaml not in repo"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/coderabbit.yaml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            if gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has .coderabbit.yaml"
+              continue
+            fi
+            echo "Seeding $repo with .coderabbit.yaml"
+            gh api "repos/$repo/contents/.coderabbit.yaml" --method PUT --silent \
+              -f "message=chore: seed canonical .coderabbit.yaml from github-settings-automation" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed .coderabbit.yaml on $repo"
+          done < targets.txt
 
   enforce-org:
     runs-on: ubuntu-latest
@@ -52,19 +97,63 @@ jobs:
           fi
           gh api /orgs/O-ANcppLua --jq .login
 
-      - name: Patch recently-created org repos
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve target org repos
+        id: targets
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+          FULL_SWEEP: ${{ inputs.full_sweep || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$FULL_SWEEP" = "true" ]; then
+            echo "Mode: full sweep (all active O-ANcppLua/* repos)"
+            gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+              --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+              > targets.txt
+          else
+            SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "Mode: incremental (since $SINCE)"
+            gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+              --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+              > targets.txt
+          fi
+          echo "Targets:"
+          cat targets.txt
+
+      - name: Patch repo settings (delete_branch_on_merge + allow_auto_merge)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
         run: |
           set -euo pipefail
-          SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
-          echo "Cutoff: $SINCE"
-          gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-            --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
-          | while read -r repo; do
-              [ -z "$repo" ] && continue
-              echo "Patching $repo"
-              gh api "repos/$repo" --method PATCH --silent \
-                -F delete_branch_on_merge=true \
-                -F allow_auto_merge=true
-            done
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            echo "Patching $repo"
+            gh api "repos/$repo" --method PATCH --silent \
+              -F delete_branch_on_merge=true \
+              -F allow_auto_merge=true
+          done < targets.txt
+
+      - name: Sync .coderabbit.yaml if missing
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -euo pipefail
+          [ -f templates/coderabbit.yaml ] || { echo "templates/coderabbit.yaml not in repo"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/coderabbit.yaml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            # Skip meta repos that should not carry a .coderabbit.yaml
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) echo "Skip $repo — meta repo"; continue ;;
+            esac
+            if gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has .coderabbit.yaml"
+              continue
+            fi
+            echo "Seeding $repo with .coderabbit.yaml"
+            gh api "repos/$repo/contents/.coderabbit.yaml" --method PUT --silent \
+              -f "message=chore: seed canonical .coderabbit.yaml from github-settings-automation" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed .coderabbit.yaml on $repo"
+          done < targets.txt
