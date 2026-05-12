@@ -53,14 +53,23 @@ PATs are scoped to one resource owner. Two PATs are required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` on All repositories | personal-side steps in both workflows |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` on All repositories | personal-side steps in both workflows |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
 | `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
 | `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | target repo only, if `refix.yml` is adopted |
 
 The org PAT needs Organization-level `Administration: write` because creating
 a new repo under the org hits `POST /orgs/{org}/repos`, which is an
 organization-scoped endpoint.
+
+Both PATs need `Contents: Read and write` because the `.coderabbit.yaml`
+seed step writes a new file via `PUT /repos/{owner}/{repo}/contents/...`,
+which `Administration` alone does not authorize. Run `25735412052` is the
+canonical example of what happens without it — the job exits success but
+every seed PUT logs `HTTP 403 Resource not accessible by personal access
+token` and is converted to a `::warning::` so the job stays green. Audit
+the run logs (not the green tick) until you are sure both PATs carry the
+right scope.
 
 ## Manual one-offs (do not automate)
 
