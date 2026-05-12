@@ -84,6 +84,38 @@ jobs:
               || echo "::warning::Failed to seed .coderabbit.yaml on $repo"
           done < targets.txt
 
+      # Surgical migration: any pre-existing .coderabbit.yaml that still
+      # carries `request_changes_workflow: true` blocks PRs with sticky
+      # CHANGES_REQUESTED reviews from CodeRabbit. Flip just that field;
+      # leave every other per-repo customization (path_instructions,
+      # pre_merge_checks, tools, etc.) untouched. Idempotent: if the
+      # field is already `false`, the file is unchanged and no commit
+      # is created.
+      - name: Patch pre-existing .coderabbit.yaml → request_changes_workflow false
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            meta="$(gh api "repos/$repo/contents/.coderabbit.yaml" 2>/dev/null || true)"
+            [ -z "$meta" ] && continue
+            sha="$(jq -r '.sha' <<<"$meta")"
+            content="$(jq -r '.content' <<<"$meta" | base64 -d)"
+            if ! grep -qE '^\s*request_changes_workflow:\s*true\s*(#.*)?$' <<<"$content"; then
+              echo "Skip $repo — no request_changes_workflow:true to flip"
+              continue
+            fi
+            echo "Patching $repo — flipping request_changes_workflow → false"
+            patched="$(sed -E 's|^(\s*request_changes_workflow:\s*)true(\s*(#.*)?)$|\1false\2|' <<<"$content")"
+            new_b64="$(printf '%s' "$patched" | base64 -w0)"
+            gh api "repos/$repo/contents/.coderabbit.yaml" --method PUT --silent \
+              -f "message=chore: flip request_changes_workflow → false (advisory CodeRabbit posture)" \
+              -f "content=$new_b64" \
+              -f "sha=$sha" \
+              || echo "::warning::Failed to patch .coderabbit.yaml on $repo"
+          done < targets.txt
+
   enforce-org:
     runs-on: ubuntu-latest
     steps:
@@ -156,4 +188,33 @@ jobs:
               -f "message=chore: seed canonical .coderabbit.yaml from github-settings-automation" \
               -f "content=$CONTENT_B64" \
               || echo "::warning::Failed to seed .coderabbit.yaml on $repo"
+          done < targets.txt
+
+      # Surgical migration: see enforce-user job for rationale.
+      - name: Patch pre-existing .coderabbit.yaml → request_changes_workflow false
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
+            esac
+            meta="$(gh api "repos/$repo/contents/.coderabbit.yaml" 2>/dev/null || true)"
+            [ -z "$meta" ] && continue
+            sha="$(jq -r '.sha' <<<"$meta")"
+            content="$(jq -r '.content' <<<"$meta" | base64 -d)"
+            if ! grep -qE '^\s*request_changes_workflow:\s*true\s*(#.*)?$' <<<"$content"; then
+              echo "Skip $repo — no request_changes_workflow:true to flip"
+              continue
+            fi
+            echo "Patching $repo — flipping request_changes_workflow → false"
+            patched="$(sed -E 's|^(\s*request_changes_workflow:\s*)true(\s*(#.*)?)$|\1false\2|' <<<"$content")"
+            new_b64="$(printf '%s' "$patched" | base64 -w0)"
+            gh api "repos/$repo/contents/.coderabbit.yaml" --method PUT --silent \
+              -f "message=chore: flip request_changes_workflow → false (advisory CodeRabbit posture)" \
+              -f "content=$new_b64" \
+              -f "sha=$sha" \
+              || echo "::warning::Failed to patch .coderabbit.yaml on $repo"
           done < targets.txt
