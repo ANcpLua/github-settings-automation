@@ -20,6 +20,7 @@ jobs:
             echo "REPO_SETTINGS_PAT_USER secret is missing"
             exit 1
           fi
+          gh api /user --jq .login
 
       - name: Patch recently-created personal repos
         env:
@@ -29,11 +30,11 @@ jobs:
           SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
           echo "Cutoff: $SINCE"
           gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-            --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.created_at >= \"$SINCE\") | .full_name" \
+            --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
           | while read -r repo; do
               [ -z "$repo" ] && continue
               echo "Patching $repo"
-              gh api "repos/$repo" --method PATCH \
+              gh api "repos/$repo" --method PATCH --silent \
                 -F delete_branch_on_merge=true \
                 -F allow_auto_merge=true
             done
@@ -49,6 +50,7 @@ jobs:
             echo "REPO_SETTINGS_PAT_ORG secret is missing"
             exit 1
           fi
+          gh api /orgs/O-ANcppLua --jq .login
 
       - name: Patch recently-created org repos
         env:
@@ -58,11 +60,11 @@ jobs:
           SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
           echo "Cutoff: $SINCE"
           gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-            --jq ".[] | select(.created_at >= \"$SINCE\") | .full_name" \
+            --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
           | while read -r repo; do
               [ -z "$repo" ] && continue
               echo "Patching $repo"
-              gh api "repos/$repo" --method PATCH \
+              gh api "repos/$repo" --method PATCH --silent \
                 -F delete_branch_on_merge=true \
                 -F allow_auto_merge=true
             done
