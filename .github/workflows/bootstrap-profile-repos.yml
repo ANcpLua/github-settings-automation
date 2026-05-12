@@ -34,26 +34,30 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if gh repo view ANcpLua/ANcpLua >/dev/null 2>&1; then
             echo "ANcpLua/ANcpLua already exists"
+          elif gh repo create ANcpLua/ANcpLua --public --add-readme --description "Profile README"; then
+            echo "Created ANcpLua/ANcpLua"
+          elif gh repo view ANcpLua/ANcpLua >/dev/null 2>&1; then
+            echo "ANcpLua/ANcpLua exists (create reported error but repo is present)"
           else
-            gh repo create ANcpLua/ANcpLua \
-              --public \
-              --add-readme \
-              --description "Profile README"
+            echo "Failed to ensure ANcpLua/ANcpLua exists"
+            exit 1
           fi
 
       - name: Org public overview repo
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if gh repo view O-ANcppLua/.github >/dev/null 2>&1; then
             echo "O-ANcppLua/.github already exists"
+          elif gh repo create O-ANcppLua/.github --public --add-readme --description "Organization profile README"; then
+            echo "Created O-ANcppLua/.github"
+          elif gh repo view O-ANcppLua/.github >/dev/null 2>&1; then
+            echo "O-ANcppLua/.github exists (create reported error but repo is present)"
           else
-            gh repo create O-ANcppLua/.github \
-              --public \
-              --add-readme \
-              --description "Organization profile README"
+            echo "Failed to ensure O-ANcppLua/.github exists"
+            exit 1
           fi
