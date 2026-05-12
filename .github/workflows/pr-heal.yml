@@ -63,11 +63,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${EXPLICIT:-}" ]; then
-            # Format: owner/repo#N — explicit single-PR dispatch.
+            # Format: owner/repo#N — explicit single-PR dispatch. Still
+            # resolve actual mergeStateStatus so the strategy gates fire
+            # correctly (BLOCKED → CR autofix path, BEHIND/DIRTY → rebase
+            # path). Use the owner-appropriate PAT so private repos work.
             repo="${EXPLICIT%#*}"
             pr="${EXPLICIT#*#}"
-            jq -nc --arg repo "$repo" --argjson pr "$pr" \
-              '[{repo:$repo, pr:$pr, why:"explicit"}]' > targets.json
+            owner="${repo%%/*}"
+            case "$owner" in
+              ANcpLua) tok="$GH_TOKEN" ;;
+              O-ANcppLua) tok="$GH_TOKEN_ORG" ;;
+              *) echo "::error::Unsupported owner: $owner"; exit 1 ;;
+            esac
+            state="$(GH_TOKEN="$tok" gh pr view "$pr" --repo "$repo" \
+              --json mergeStateStatus --jq '.mergeStateStatus' 2>/dev/null || echo "UNKNOWN")"
+            jq -nc --arg repo "$repo" --argjson pr "$pr" --arg why "$state" \
+              '[{repo:$repo, pr:$pr, why:$why}]' > targets.json
           else
             # Fleet scan. A PR is "stuck" when ALL of:
             #   - state OPEN, not draft
