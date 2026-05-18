@@ -1,0 +1,98 @@
+# drift-policy.yaml — Watchset for the semantic config-drift detector.
+#
+# Add repos to the `repos:` list and file paths to the `watch:` list.
+# Normalisers are auto-detected from filename; override per entry with
+# `normalizer: <name>` if needed.
+#
+# Available normalisers:
+#   json   — parse + sort-keys + canonical dump (whitespace and key-order
+#            ignored)
+#   yaml   — parse + sort-keys + canonical dump
+#   xml    — parse + sort attributes + strip insignificant whitespace
+#   ini    — section[key]=value pairs, comments stripped, sorted
+#   lines  — line-based; comments and blank lines stripped, lines deduped
+#            and sorted (.gitignore, .dockerignore, .gitattributes etc.)
+#   raw    — bytes as UTF-8 text, .strip()
+
+repos:
+  # ANcpLua framework
+  - ANcpLua/ANcpLua.NET.Sdk
+  - ANcpLua/ANcpLua.Roslyn.Utilities
+  - ANcpLua/ANcpLua.Analyzers
+  - ANcpLua/ANcpLua.Agents
+  - ANcpLua/ANcpLua.OpenTelemetry.SemanticConventions.Analyzers
+
+  # OTel-adjacent
+  - O-ANcppLua/ANcpLua.OtelConventions.Api
+  - O-ANcppLua/Nuke.OpenTelemetry.Conventions
+  - ANcpLua/typespec-otel-semconv
+
+  # Apps and libs
+  - ANcpLua/ErrorOrX
+  - ANcpLua/dotcov
+  - ANcpLua/TourPlanner
+  - ANcpLua/TourPlanner-Angular
+  - ANcpLua/Paperless
+  - ANcpLua/nhmw-digital-collection
+
+  # Docs and meta
+  - ANcpLua/ancplua-claude-plugins
+  - ANcpLua/ancplua-docs
+
+  # qyl — to enable later
+  # - O-ANcppLua/qyl
+
+watch:
+  # Renovate + dependency-bot configs
+  - path: renovate.json
+  - path: .github/dependabot.yml
+
+  # Editor + linter configs
+  - path: .editorconfig
+  - path: .globalconfig
+  - path: .markdownlint.json
+  - path: .markdownlintignore
+  - path: .prettierrc
+
+  # Reviewer/automation configs
+  - path: .coderabbit.yaml
+  - path: .codecov.yml
+  - path: codecov.yml
+
+  # Repo hygiene
+  - path: .gitattributes
+  - path: .gitignore
+  - path: .dockerignore
+  - path: .gitmodules
+
+  # .NET specific
+  - path: nuget.config
+  - path: Directory.Build.props
+  - path: Directory.Packages.props
+  - path: Directory.Build.targets
+  - path: Version.props
+  - path: global.json
+
+  # Node
+  - path: .npmrc
+  - path: package.json
+    # legitimate to differ — each repo has its own deps; surface for awareness
+    # only. Drift is expected.
+
+  # Shared workflows
+  - path: .github/workflows/auto-merge.yml
+  - path: .github/workflows/coderabbit-autofix.yml
+  - path: .github/workflows/claude-code-review.yml
+  - path: .github/workflows/coderabbit.yml
+  - path: .github/workflows/ci.yml
+
+  # Build host
+  - path: build.sh
+  - path: build.cmd
+  - path: build.ps1
+
+  # License / agent docs (compared raw — surfaces accidental Mintlify-style
+  # default attribution leftovers)
+  - path: LICENSE
+  - path: CLAUDE.md
+  - path: AGENTS.md

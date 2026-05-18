@@ -153,3 +153,68 @@ carry every scope above.
   `renovate-config`, `ancplua-docs`, `dotcov`) is a separate
   coordinated move; sibling `O-ANcppLua/ANcpLua.OtelConventions.Api`
   already lives in the org.
+
+
+## Config drift detector
+
+`scripts/drift_check.py` audits a watchlist of shared configuration files across all listed repositories and reports **semantic** drift — not byte-level. Two files with different whitespace, different JSON key order, or different YAML flow style collapse to the same equivalence class.
+
+## What "semantic" means per file type
+
+| File type | Normaliser | Ignores |
+|---|---|---|
+| `*.json`, `renovate.json`, `package.json`, `.markdownlint.json` | `json` | Whitespace, key order, trailing newlines |
+| `*.yaml`, `*.yml`, `.coderabbit.yaml`, `dependabot.yml` | `yaml` | Whitespace, key order, flow vs block style |
+| `*.xml`, `*.props`, `*.targets`, `nuget.config`, `Directory.Build.props` | `xml` | Insignificant whitespace, attribute order |
+| `.editorconfig`, `.gitmodules`, `.npmrc`, `.globalconfig` | `ini` | Comments, section ordering, key ordering |
+| `.gitignore`, `.dockerignore`, `.gitattributes`, `.markdownlintignore` | `lines` | Comments, blank lines, duplicate lines, ordering |
+| `LICENSE`, `build.sh`, `build.cmd` | `raw` | Trailing whitespace |
+
+Override the auto-detected normaliser per entry in `scripts/drift-policy.yaml` with `normalizer: <name>`.
+
+## Running locally
+
+```bash
+cd <this repo>
+pip install pyyaml
+python scripts/drift_check.py \
+    --policy scripts/drift-policy.yaml \
+    --output drift-report.md \
+    --manifest drift-manifest.json
+```
+
+Exit code `0` if all paths have one semantic cluster, `1` if any drift found, `2` on configuration or auth error.
+
+Reads GitHub via the `gh` CLI; needs `gh auth status` to be authenticated.
+
+## CI
+
+`.github/workflows/drift-check.yml` runs the detector every Monday 06:00 UTC. On drift, it opens (or updates) an issue labelled `config-drift` with the report inline. Artefacts (`drift-report.md`, `drift-manifest.json`) are retained for 90 days.
+
+To trigger manually: Actions → Config drift check → Run workflow.
+
+## Adding a repo or a file path
+
+Edit `scripts/drift-policy.yaml`:
+
+```yaml
+repos:
+  - ANcpLua/<new-repo>     # add here
+
+watch:
+  - path: <new-file>        # add here
+    # optional: normalizer: json
+```
+
+The detector auto-picks the right normaliser from the file name; only specify `normalizer:` if you want to override.
+
+## Interpreting the report
+
+The report groups each watched path into **semantic clusters**. The largest cluster is marked `**canonical** (majority)`; smaller clusters are `drift #N`.
+
+- **One cluster** → clean, all repos semantically equivalent for this file.
+- **Two or more clusters** → drift. The smaller ones likely need to be aligned with the canonical (or the variation is legitimate and should be allowlisted — see below).
+
+### Legitimate variation
+
+Some drift is intentional (e.g. anti-self-bump rules in `renovate.json` referencing each repo's own package name). Currently you read the report and ignore those rows; future revision can add an allowlist mechanism if false-positives become a maintenance burden.
