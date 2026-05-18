@@ -5,10 +5,14 @@ on:
     - cron: "0 17 * * 1"
   workflow_dispatch:
     inputs:
-      full_sweep:
-        description: "Sweep ALL active repos (else just last 8 days)"
-        type: boolean
-        default: false
+      sweep_mode:
+        description: "topic = curated fleet (ancplua-fleet topic, default); recent = last 8 days; full = every non-fork active repo"
+        type: choice
+        options:
+          - topic
+          - recent
+          - full
+        default: topic
 
 permissions:
   contents: read
@@ -33,21 +37,34 @@ jobs:
         id: targets
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
-          FULL_SWEEP: ${{ inputs.full_sweep || 'false' }}
+          SWEEP_MODE: ${{ inputs.sweep_mode || 'topic' }}
         run: |
           set -euo pipefail
-          if [ "$FULL_SWEEP" = "true" ]; then
-            echo "Mode: full sweep (all active ANcpLua/* repos)"
-            gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
-              > targets.txt
-          else
-            SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
-            echo "Mode: incremental (since $SINCE)"
-            gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
-              > targets.txt
-          fi
+          case "$SWEEP_MODE" in
+            topic)
+              echo "Mode: topic (ancplua-fleet curated repos)"
+              gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+                --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "ancplua-fleet")) | .full_name' \
+                > targets.txt
+              ;;
+            recent)
+              SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+              echo "Mode: recent (since $SINCE)"
+              gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+                --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+                > targets.txt
+              ;;
+            full)
+              echo "Mode: full (every non-fork active ANcpLua/* repo)"
+              gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
+                --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
+                > targets.txt
+              ;;
+            *)
+              echo "::error::Unknown sweep_mode: $SWEEP_MODE"
+              exit 1
+              ;;
+          esac
           echo "Targets:"
           cat targets.txt
 
@@ -189,21 +206,34 @@ jobs:
         id: targets
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-          FULL_SWEEP: ${{ inputs.full_sweep || 'false' }}
+          SWEEP_MODE: ${{ inputs.sweep_mode || 'topic' }}
         run: |
           set -euo pipefail
-          if [ "$FULL_SWEEP" = "true" ]; then
-            echo "Mode: full sweep (all active O-ANcppLua/* repos)"
-            gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-              --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
-              > targets.txt
-          else
-            SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
-            echo "Mode: incremental (since $SINCE)"
-            gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
-              > targets.txt
-          fi
+          case "$SWEEP_MODE" in
+            topic)
+              echo "Mode: topic (ancplua-fleet curated repos)"
+              gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+                --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "ancplua-fleet")) | .full_name' \
+                > targets.txt
+              ;;
+            recent)
+              SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+              echo "Mode: recent (since $SINCE)"
+              gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+                --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+                > targets.txt
+              ;;
+            full)
+              echo "Mode: full (every non-fork active O-ANcppLua/* repo)"
+              gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
+                --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
+                > targets.txt
+              ;;
+            *)
+              echo "::error::Unknown sweep_mode: $SWEEP_MODE"
+              exit 1
+              ;;
+          esac
           echo "Targets:"
           cat targets.txt
 
