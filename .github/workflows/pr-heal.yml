@@ -318,31 +318,117 @@ jobs:
             - If you cannot resolve in <= 30 turns of work, exit and leave
               the branch as you found it (no half-fixes).
 
-      # ─── Strategy 3 + 4 (future): Codex / Copilot agents ────────────────
-      # When Claude exhausts quota (action exits non-zero with a 429-shape
-      # message), this is where Codex (OPENAI_API_KEY) and Copilot
-      # Workspace would be invoked in the same fallback pattern. Tracked
-      # in qyl-self-healing-vision; add when the first 429 actually fires
-      # so we have a real signature to detect.
+      # ─── Strategy 3: different-vendor AI advisory via GitHub Models ─────
+      # When Claude (tier 2) exits non-zero (quota, refusal, timeout), the
+      # heavy auto-fix lane is closed. Tier 3 isn't another auto-fixer —
+      # it's a *second opinion* from a different vendor that posts a
+      # structured diagnosis as a PR comment. Cheap, free (uses the GH
+      # Models entitlement bundled with the actions runner's GH_TOKEN),
+      # different vendor (Llama-3.3 by default, swap via `model:` input).
+      # Does NOT modify code.
+      - name: Tier 3 — different-vendor advisory (GitHub Models)
+        id: tier3
+        if: steps.claude.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/ai-inference@v1
+        with:
+          model: meta/Llama-3.3-70B-Instruct
+          token: ${{ secrets.GITHUB_TOKEN }}
+          max-tokens: 1500
+          system-prompt: |
+            You are a senior engineer triaging a stuck pull request. Your job
+            is to produce a precise diagnostic comment, not a code patch.
+            Output exactly three sections, each one short paragraph:
+              **Likely cause:** what is blocking the merge given the state.
+              **Suggested next step:** one concrete command or owner action.
+              **If escalating:** which expert/team to ping and why.
+            No filler, no praise, no markdown beyond the three bold headers.
+          prompt: |
+            PR #${{ matrix.target.pr }} on ${{ matrix.target.repo }} is
+            stuck at mergeStateStatus=${{ matrix.target.why }}. Tier 1
+            (CodeRabbit autofix) and Tier 2 (Claude Code direct) both
+            could not unblock it. Diagnose and advise.
 
-      # ─── Surface result ─────────────────────────────────────────────────
-      - name: Report outcome on the PR
-        if: always()
+      - name: Tier 3 — post advisory comment
+        if: steps.tier3.outcome == 'success' && steps.tier3.outputs.response != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
-          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
-          CR_INVOKED: ${{ steps.cr_autofix.outputs.cr_invoked || 'skipped' }}
+          ADVICE: ${{ steps.tier3.outputs.response }}
         run: |
           set -euo pipefail
-          if [ "$CLAUDE_OUTCOME" = "success" ]; then
-            echo "Healed ${REPO}#${PR} via Claude"
-            exit 0
-          fi
-          # Genuine "all providers failed" surface. Make it a one-line
-          # comment on the PR so the human-touch event is informed.
-          gh api "repos/$REPO/issues/$PR/comments" --method POST \
-            --silent \
-            -f "body=pr-heal: providers tried — CodeRabbit autofix=${CR_INVOKED}, Claude=${CLAUDE_OUTCOME}. None resolved the block (state was ${{ matrix.target.why }}). Next sweep in 15 min; if this is recurring, the Codex/Copilot fallback tiers are tracked in [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml)." \
-            || echo "::warning::Could not post outcome comment on $REPO#$PR"
+          body=$(printf '## pr-heal tier 3 — second-opinion diagnosis\n\n_Source: GitHub Models / Llama-3.3-70B (not an executed fix; advisory only)._\n\n%s' "$ADVICE")
+          gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
+            -f "body=$body" \
+            || echo "::warning::Could not post tier 3 advisory on $REPO#$PR"
+
+      # ─── Strategy 4: Codacy code-quality report ─────────────────────────
+      # Codacy isn't an auto-fixer — it's a static-analysis surface. As a
+      # tier-4 fallback it gives the human-touch event one more concrete
+      # angle: "here are the quality findings the auto-fix tiers couldn't
+      # address." Triggered via the codacy/codacy-analysis-cli action.
+      # No-op when CODACY_PROJECT_TOKEN isn't set — Codacy is opt-in per
+      # repo, the action degrades to "report-only" without it.
+      - name: Tier 4 — Codacy code-quality scan (opt-in via secret)
+        id: tier4
+        if: steps.claude.outcome == 'failure' && env.HAS_CODACY == 'true'
+        continue-on-error: true
+        env:
+          HAS_CODACY: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+        uses: codacy/codacy-analysis-cli-action@v4
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          verbose: true
+          output: tier4-codacy.sarif
+          format: sarif
+          gh-code-scanning-compat: true
+          max-allowed-issues: 9999  # surface all, don't fail the step
+
+      # ─── Strategy 5: human-ping with full diagnostic ────────────────────
+      # The honest endpoint: every auto-fix attempt failed. Post the most
+      # actionable summary we have (tier 3 advisory if present, plus tier
+      # outcomes) so the human-touch event opens with full context, not
+      # "something failed, idk what." This is `if: failure() || always()`
+      # style but only when everything before exhausted.
+      - name: Tier 5 — human-ping with diagnostic
+        if: always() && steps.claude.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          REPO: ${{ matrix.target.repo }}
+          PR: ${{ matrix.target.pr }}
+          WHY: ${{ matrix.target.why }}
+          CR_INVOKED: ${{ steps.cr_autofix.outputs.cr_invoked || 'skipped' }}
+          TIER3_OUTCOME: ${{ steps.tier3.outcome }}
+          TIER4_OUTCOME: ${{ steps.tier4.outcome }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<EOF
+## pr-heal: auto-fix tiers exhausted
+
+| Tier | Provider | Outcome |
+|---|---|---|
+| 1 | CodeRabbit autofix | ${CR_INVOKED} |
+| 2 | Claude Code direct (anthropics/claude-code-action) | failure |
+| 3 | GitHub Models advisory (Llama-3.3-70B) | ${TIER3_OUTCOME} |
+| 4 | Codacy code-quality scan | ${TIER4_OUTCOME} |
+
+Block state: \`${WHY}\`. Next automated retry in 15 min via [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml) cron — but if this comment is here, the same providers will likely fail again. Human intervention recommended.
+
+If tier 3 produced a useful diagnosis it's in the comment above this one.
+EOF
+)
+          gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
+            -f "body=$body" \
+            || echo "::warning::Could not post tier 5 human-ping on $REPO#$PR"
+
+      # ─── Surface result (success path only) ─────────────────────────────
+      - name: Report outcome on the PR (success)
+        if: steps.claude.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          REPO: ${{ matrix.target.repo }}
+          PR: ${{ matrix.target.pr }}
+        run: echo "Healed ${REPO}#${PR} via Claude (tier 2)"
