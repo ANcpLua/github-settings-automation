@@ -106,6 +106,40 @@ jobs:
               || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
           done < targets.txt
 
+      # Sync auto-merge.yml. Unlike the autofix above (skip-if-exists),
+      # this REPLACES — the bug we fix here (the now-removed owner-clause
+      # that caused PR#170 to merge before CodeRabbit could review) lives
+      # in the existing per-repo files and must be overwritten. Skip repos
+      # that don't already have an auto-merge.yml: we don't push the
+      # workflow into repos that opted out.
+      - name: Sync auto-merge.yml (replace if drifted from template)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -uo pipefail
+          [ -f templates/auto-merge.yml ] || { echo "templates/auto-merge.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/auto-merge.yml)"
+          TEMPLATE_CONTENT="$(cat templates/auto-merge.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null || true)"
+            if [ -z "$current_sha" ] || [ "$current_sha" = "null" ]; then
+              echo "Skip $repo — no auto-merge.yml (not seeding into repos that opted out)"
+              continue
+            fi
+            current_content="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null | base64 -d)"
+            if [ "$current_content" = "$TEMPLATE_CONTENT" ]; then
+              echo "Skip $repo — auto-merge.yml already canonical"
+              continue
+            fi
+            echo "Updating $repo's auto-merge.yml to canonical"
+            gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --method PUT --silent \
+              -f "message=chore: sync auto-merge.yml to canonical (remove owner-clause; cooldown lives in pr-heal.yml)" \
+              -f "content=$CONTENT_B64" \
+              -f "sha=$current_sha" \
+              || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
+          done < targets.txt
+
   enforce-org:
     runs-on: ubuntu-latest
     steps:
@@ -194,4 +228,35 @@ jobs:
               -f "message=chore: seed coderabbit-autofix.yml from github-settings-automation" \
               -f "content=$CONTENT_B64" \
               || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
+          done < targets.txt
+
+      - name: Sync auto-merge.yml (replace if drifted from template)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -uo pipefail
+          [ -f templates/auto-merge.yml ] || { echo "templates/auto-merge.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/auto-merge.yml)"
+          TEMPLATE_CONTENT="$(cat templates/auto-merge.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
+            esac
+            current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null || true)"
+            if [ -z "$current_sha" ] || [ "$current_sha" = "null" ]; then
+              echo "Skip $repo — no auto-merge.yml"
+              continue
+            fi
+            current_content="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null | base64 -d)"
+            if [ "$current_content" = "$TEMPLATE_CONTENT" ]; then
+              echo "Skip $repo — auto-merge.yml already canonical"
+              continue
+            fi
+            echo "Updating $repo's auto-merge.yml to canonical"
+            gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --method PUT --silent \
+              -f "message=chore: sync auto-merge.yml to canonical (owner-clause removed; cooldown lives in pr-heal.yml)" \
+              -f "content=$CONTENT_B64" \
+              -f "sha=$current_sha" \
+              || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
           done < targets.txt

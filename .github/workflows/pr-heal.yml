@@ -67,21 +67,44 @@ jobs:
           GH_TOKEN_ORG: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
         run: |
           set -uo pipefail
-          TRUSTED='^(ANcpLua|renovate\[bot\]|dependabot\[bot\]|copilot\[bot\]|coderabbitai\[bot\]|jules\[bot\]|claude-code\[bot\]|github-actions\[bot\])$'
+          # Trusted-bot list — instant auto-merge OK, no cooldown needed.
+          BOTS='^(renovate\[bot\]|dependabot\[bot\]|copilot\[bot\]|coderabbitai\[bot\]|jules\[bot\]|claude-code\[bot\]|github-actions\[bot\])$'
+          # Trusted-user list — author is a human (incl. agents acting via
+          # ANcpLua's gh CLI auth). For these we enforce a cooldown window
+          # so CodeRabbit / Codex / Claude PR-review tiers land their
+          # advisory comments BEFORE we auto-flip merge-on-green. Without
+          # this, a PR opened via `gh CLI` on green CI fires Job 0 in the
+          # next 15-min sweep and merges before a single reviewer comment
+          # ever appears (cf. PR#170 incident, 2026-05-18).
+          USERS='^(ANcpLua)$'
+          # Cooldown in seconds. 300 = 5 min covers CodeRabbit (typically
+          # 30–60s), Codex Code Review on push (60–120s), and Claude Code
+          # Review (60–180s) with safety margin.
+          COOLDOWN_SECONDS=300
           enabled=0
           direct_merged=0
+          skipped_cooldown=0
           skipped_no_protection=0
 
           process_repo() {
             local repo="$1"
             gh pr list --repo "$repo" --state open --limit 100 \
-              --json number,author,isDraft,mergeStateStatus,autoMergeRequest 2>/dev/null \
+              --json number,author,isDraft,mergeStateStatus,autoMergeRequest,createdAt 2>/dev/null \
               | jq -c '.[] | select(.isDraft == false) | select(.autoMergeRequest == null) | select(.mergeStateStatus == "CLEAN" or .mergeStateStatus == "UNSTABLE")' \
               | while read -r pr; do
                   author="$(jq -r '.author.login' <<<"$pr")"
                   n="$(jq -r '.number' <<<"$pr")"
                   state="$(jq -r '.mergeStateStatus' <<<"$pr")"
-                  if ! [[ "$author" =~ $TRUSTED ]]; then
+                  created_at="$(jq -r '.createdAt' <<<"$pr")"
+                  if [[ "$author" =~ $BOTS ]]; then
+                    : # bot — proceed immediately
+                  elif [[ "$author" =~ $USERS ]]; then
+                    age_seconds=$(( $(date -u +%s) - $(date -u -d "$created_at" +%s) ))
+                    if [ "$age_seconds" -lt "$COOLDOWN_SECONDS" ]; then
+                      echo "$repo#$n: cooldown — ${age_seconds}s old, waiting for reviewer-tier comments (next sweep in 15min)"
+                      continue
+                    fi
+                  else
                     continue
                   fi
                   out="$(gh pr merge "$n" --repo "$repo" --auto --squash --delete-branch 2>&1)"
