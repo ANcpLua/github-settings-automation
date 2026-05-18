@@ -140,6 +140,32 @@ jobs:
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
           done < targets.txt
 
+      # Seed triage-bot.yml. Skip-if-exists (per-repo PAT/App secret
+      # makes this opt-in). The pattern: bot classifies unresolved review
+      # threads, auto-resolves the non-blocking ones, leaves needs-human
+      # threads to block native auto-merge via required_conversation_resolution.
+      # Validated end-to-end in ANcpLua/triage-bot-playground (PR #1 + #2,
+      # 2026-05-18).
+      - name: Seed triage-bot.yml (skip if exists; opt-in via TRIAGE_PAT secret)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -uo pipefail
+          [ -f templates/triage-bot.yml ] || { echo "templates/triage-bot.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/triage-bot.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            if gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has triage-bot.yml"
+              continue
+            fi
+            echo "Seeding $repo with triage-bot.yml"
+            gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --method PUT --silent \
+              -f "message=chore: seed triage-bot.yml from github-settings-automation (requires TRIAGE_PAT secret + required_conversation_resolution on default branch)" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed triage-bot.yml on $repo (ruleset or PAT scope)"
+          done < targets.txt
+
   enforce-org:
     runs-on: ubuntu-latest
     steps:
@@ -259,4 +285,27 @@ jobs:
               -f "content=$CONTENT_B64" \
               -f "sha=$current_sha" \
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
+          done < targets.txt
+
+      - name: Seed triage-bot.yml (skip if exists; opt-in via TRIAGE_PAT secret)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -uo pipefail
+          [ -f templates/triage-bot.yml ] || { echo "templates/triage-bot.yml missing"; exit 1; }
+          CONTENT_B64="$(base64 -w0 templates/triage-bot.yml)"
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
+            esac
+            if gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --silent 2>/dev/null; then
+              echo "Skip $repo — already has triage-bot.yml"
+              continue
+            fi
+            echo "Seeding $repo with triage-bot.yml"
+            gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --method PUT --silent \
+              -f "message=chore: seed triage-bot.yml from github-settings-automation (requires TRIAGE_PAT secret + required_conversation_resolution on default branch)" \
+              -f "content=$CONTENT_B64" \
+              || echo "::warning::Failed to seed triage-bot.yml on $repo (ruleset or PAT scope)"
           done < targets.txt
