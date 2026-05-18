@@ -330,9 +330,9 @@ jobs:
         id: tier3
         if: steps.claude.outcome == 'failure'
         continue-on-error: true
-        uses: actions/ai-inference@v1
+        uses: actions/ai-inference@v2
         with:
-          model: meta/Llama-3.3-70B-Instruct
+          model: openai/gpt-4o-mini
           token: ${{ secrets.GITHUB_TOKEN }}
           max-tokens: 1500
           system-prompt: |
@@ -359,7 +359,7 @@ jobs:
           ADVICE: ${{ steps.tier3.outputs.response }}
         run: |
           set -euo pipefail
-          body=$(printf '## pr-heal tier 3 — second-opinion diagnosis\n\n_Source: GitHub Models / Llama-3.3-70B (not an executed fix; advisory only)._\n\n%s' "$ADVICE")
+          body=$(printf '## pr-heal tier 3 — second-opinion diagnosis\n\n_Source: GitHub Models / gpt-4o-mini (not an executed fix; advisory only)._\n\n%s' "$ADVICE")
           gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
             -f "body=$body" \
             || echo "::warning::Could not post tier 3 advisory on $REPO#$PR"
@@ -409,7 +409,7 @@ jobs:
           # conflict: heredoc terminators want column-1 EOF, YAML block
           # scalar wants every line to share an indent. printf with
           # explicit \n is robust under both.
-          body=$(printf '## pr-heal: auto-fix tiers exhausted\n\n- Tier 1 — CodeRabbit autofix: %s\n- Tier 2 — Claude Code direct: failure\n- Tier 3 — GitHub Models advisory (Llama-3.3-70B): %s\n- Tier 4 — Codacy code-quality scan: %s\n\nBlock state: `%s`. Next automated retry in 15 min via the [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml) cron — but if this comment is here, the same providers will likely fail again. Human intervention recommended.\n\nIf tier 3 produced a useful diagnosis it is in the comment above this one.\n' "$CR_INVOKED" "$TIER3_OUTCOME" "$TIER4_OUTCOME" "$WHY")
+          body=$(printf '## pr-heal: auto-fix tiers exhausted\n\n- Tier 1 — CodeRabbit autofix: %s\n- Tier 2 — Claude Code direct: failure\n- Tier 3 — GitHub Models advisory (gpt-4o-mini): %s\n- Tier 4 — Codacy code-quality scan: %s\n\nBlock state: `%s`. Next automated retry in 15 min via the [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml) cron — but if this comment is here, the same providers will likely fail again. Human intervention recommended.\n\nIf tier 3 produced a useful diagnosis it is in the comment above this one.\n' "$CR_INVOKED" "$TIER3_OUTCOME" "$TIER4_OUTCOME" "$WHY")
           gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
             -f "body=$body" \
             || echo "::warning::Could not post tier 5 human-ping on $REPO#$PR"
