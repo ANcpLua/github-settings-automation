@@ -86,9 +86,16 @@ def norm_raw(data: bytes) -> str:
     return data.decode("utf-8", errors="replace").strip()
 
 
-def norm_lines_sorted(data: bytes) -> str:
-    """Ignore-style files (.gitignore, .dockerignore, .gitattributes, etc.):
-    strip blank lines and comments, dedupe, sort, join."""
+def norm_lines_set(data: bytes) -> str:
+    """Line-based files where order is semantically irrelevant: strip blank
+    lines and comments, dedupe, sort. Safe for files like ``.npmignore``-style
+    pattern lists *only when* you have verified the consumer treats them as
+    an unordered set.
+
+    NOT SAFE for ``.gitignore`` or ``.gitattributes`` — git semantics give the
+    LAST matching pattern precedence, so reordering can change behaviour. Use
+    :func:`norm_lines_ordered` for those.
+    """
     text = data.decode("utf-8", errors="replace")
     lines = set()
     for line in text.splitlines():
@@ -97,6 +104,34 @@ def norm_lines_sorted(data: bytes) -> str:
             continue
         lines.add(s)
     return "\n".join(sorted(lines))
+
+
+def norm_lines_ordered(data: bytes) -> str:
+    """Line-based files where order matters: strip blank lines and comments,
+    preserve order, collapse only adjacent duplicates.
+
+    Required for ``.gitignore`` and ``.gitattributes``:
+
+    * gitignore: within one precedence level, the last matching pattern
+      decides whether a path is ignored.
+    * gitattributes: when more than one pattern matches a path, the last
+      matching line overrides earlier ones per attribute.
+
+    Sorting these files would let two semantically different versions hash to
+    the same cluster and silently pass a drift check.
+    """
+    text = data.decode("utf-8", errors="replace")
+    out: list[str] = []
+    prev: str | None = None
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s == prev:
+            continue  # collapse adjacent duplicates only
+        out.append(s)
+        prev = s
+    return "\n".join(out)
 
 
 def norm_json(data: bytes) -> str:
@@ -155,7 +190,9 @@ def norm_ini(data: bytes) -> str:
 
 NORMALISERS = {
     "raw": norm_raw,
-    "lines": norm_lines_sorted,
+    "lines_set": norm_lines_set,           # order-irrelevant (use with care)
+    "lines_ordered": norm_lines_ordered,   # order-sensitive (.gitignore et al.)
+    "lines": norm_lines_ordered,           # alias — fail safe: assume order matters
     "json": norm_json,
     "yaml": norm_yaml,
     "xml": norm_xml,
@@ -176,11 +213,14 @@ DEFAULT_NORMALISERS = {
     ".codecov.yml": "yaml",
     "codecov.yml": "yaml",
     "dependabot.yml": "yaml",
-    # Line-based ignore files
-    ".gitattributes": "lines",
-    ".gitignore": "lines",
-    ".dockerignore": "lines",
-    ".markdownlintignore": "lines",
+    # Line-based ignore files. All four use ordered normalisation because
+    # the consumers (git, docker, markdownlint) all assign per-line precedence
+    # where a later line can override an earlier one. Sorting would mask real
+    # behavioural drift behind identical normalised hashes.
+    ".gitattributes": "lines_ordered",
+    ".gitignore": "lines_ordered",
+    ".dockerignore": "lines_ordered",
+    ".markdownlintignore": "lines_ordered",
     # INI-like
     ".gitmodules": "ini",
     ".editorconfig": "ini",
