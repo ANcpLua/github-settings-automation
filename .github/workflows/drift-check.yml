@@ -1,0 +1,73 @@
+name: Config drift check
+
+on:
+  schedule:
+    # Weekly Monday 06:00 UTC. Matches the existing weekly hygiene cadence.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      policy:
+        description: 'Policy file path'
+        type: string
+        default: 'scripts/drift-policy.yaml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Run drift detector
+        id: drift
+        env:
+          GH_TOKEN: ${{ secrets.DRIFT_CHECK_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # The script reads gh CLI which is preinstalled on ubuntu-latest.
+          # GH_TOKEN above gives it auth.
+          python scripts/drift_check.py \
+            --policy "${{ inputs.policy || 'scripts/drift-policy.yaml' }}" \
+            --output drift-report.md \
+            --manifest drift-manifest.json || echo "DRIFT_DETECTED=1" >> $GITHUB_ENV
+          echo "----- report start -----"
+          cat drift-report.md
+          echo "----- report end -----"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: |
+            drift-report.md
+            drift-manifest.json
+          retention-days: 90
+
+      - name: Open issue on drift
+        if: env.DRIFT_DETECTED == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find existing open drift issue to update rather than spam new ones
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label config-drift --state open \
+            --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body-file drift-report.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Config drift detected ($(date -I))" \
+              --label config-drift \
+              --body-file drift-report.md
+          fi
