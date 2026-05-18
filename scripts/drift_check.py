@@ -65,7 +65,11 @@ def gh_api(endpoint: str) -> dict | None:
 
 
 def fetch_file(repo: str, path: str) -> bytes | None:
-    """Fetch raw file bytes for repo/path. None if file missing."""
+    """Fetch raw file bytes for repo/path. None if file missing.
+
+    Always uses the Contents API + base64 decode — never raw.githubusercontent.com,
+    which is CDN-cached and lags ~5min behind merges, lying about post-merge state.
+    """
     # gh api accepts /-paths directly when passed as endpoint, no URL-encoding
     # needed for the slash in `contents/<path>`.
     result = gh_api(f"repos/{repo}/contents/{path}")
@@ -75,6 +79,50 @@ def fetch_file(repo: str, path: str) -> bytes | None:
     if not content:
         return None
     return base64.b64decode(content)
+
+
+def branch_protection(repo: str, branch: str = "main") -> dict | None:
+    """Return the branch-protection payload for repo's default branch, or None
+    if the branch is unprotected. Useful to route writes:
+
+    * unprotected → ``gh api PUT /repos/X/Y/contents/<path>`` direct
+    * protected → branch + PR + rely on auto-merge.yml (or pr-heal.yml cron)
+
+    Spec note: this is the *classic* branch-protection check. If the repo uses
+    a ruleset instead (newer GitHub feature), call ``branch_rulesets()``.
+    """
+    result = gh_api(f"repos/{repo}/branches/{branch}/protection")
+    return result  # None when 404 (= unprotected); dict otherwise
+
+
+def branch_rulesets(repo: str) -> list[dict]:
+    """Return active rulesets on the repo. Empty list means none.
+
+    A repo with no classic branch-protection but with an active ruleset that
+    enforces required reviews / status checks will still reject direct pushes
+    to its default branch. Checking both is required to route correctly.
+    """
+    result = gh_api(f"repos/{repo}/rulesets")
+    if not isinstance(result, list):
+        return []
+    return [rs for rs in result if rs.get("enforcement") == "active"]
+
+
+def is_default_branch_writable(repo: str) -> bool:
+    """True iff direct push to the default branch is allowed (no protection,
+    no active ruleset targeting the branch).
+
+    Use upfront to decide push-direct vs branch-then-PR for cross-repo writes.
+    """
+    if branch_protection(repo) is not None:
+        return False
+    # Any ruleset whose target is "branch" potentially blocks. We could check
+    # the ruleset's conditions to be precise, but treating any active branch
+    # ruleset as blocking is the safe default and matches the empirical pattern
+    # in this fleet (rulesets always target the default branch when present).
+    if any(rs.get("target") == "branch" for rs in branch_rulesets(repo)):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -396,16 +444,33 @@ def main() -> None:
         sys.exit(2)
     policy = yaml.safe_load(policy_path.read_text())
 
+    # Validate policy shape — a malformed YAML can silently parse to a non-dict
+    # (e.g. a top-level list) and crash later with an opaque AttributeError.
+    if not isinstance(policy, dict):
+        print(f"policy YAML must be a mapping at the top level; got {type(policy).__name__}", file=sys.stderr)
+        sys.exit(2)
     repos = policy.get("repos") or []
     watch = policy.get("watch") or []
+    if not isinstance(repos, list) or not isinstance(watch, list):
+        print("policy 'repos' and 'watch' must both be lists", file=sys.stderr)
+        sys.exit(2)
     if not repos or not watch:
         print("policy must define non-empty 'repos' and 'watch' lists", file=sys.stderr)
         sys.exit(2)
 
-    findings: list[dict] = []
-    for entry in watch:
+    # Normalise watch entries early so check_path() never sees a bad shape.
+    normalised: list[dict] = []
+    for i, entry in enumerate(watch):
         if isinstance(entry, str):
-            entry = {"path": entry}
+            normalised.append({"path": entry})
+        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            normalised.append(entry)
+        else:
+            print(f"policy watch entry #{i} is neither a string nor a mapping with a 'path' key: {entry!r}", file=sys.stderr)
+            sys.exit(2)
+
+    findings: list[dict] = []
+    for entry in normalised:
         if not args.quiet:
             print(f"checking {entry['path']} across {len(repos)} repos...", file=sys.stderr)
         findings.append(check_path(repos, entry))
