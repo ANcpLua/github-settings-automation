@@ -2,7 +2,7 @@ name: Enforce repository settings
 
 on:
   schedule:
-    - cron: "0 9 * * 1"
+    - cron: "0 17 * * 1"
   workflow_dispatch:
     inputs:
       full_sweep:
