@@ -125,14 +125,14 @@ jobs:
           }
 
           GH_TOKEN="$GH_TOKEN_USER" gh api --paginate "/user/repos?per_page=100" \
-            --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+            --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
             | while read -r repo; do
                 [ -z "$repo" ] && continue
                 GH_TOKEN="$GH_TOKEN_USER" process_repo "$repo"
               done
 
           GH_TOKEN="$GH_TOKEN_ORG" gh api --paginate "/orgs/O-ANcppLua/repos?per_page=100" \
-            --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+            --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
             | while read -r repo; do
                 [ -z "$repo" ] && continue
                 GH_TOKEN="$GH_TOKEN_ORG" process_repo "$repo"
@@ -191,14 +191,14 @@ jobs:
 
             : > stuck.ndjson
             GH_TOKEN="$GH_TOKEN" gh api --paginate "/user/repos?per_page=100" \
-              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
               | while read -r repo; do
                   [ -z "$repo" ] && continue
                   collect_stuck "$repo" >> stuck.ndjson
                 done
 
             GH_TOKEN="$GH_TOKEN_ORG" gh api --paginate "/orgs/O-ANcppLua/repos?per_page=100" \
-              --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+              --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
               | while read -r repo; do
                   [ -z "$repo" ] && continue
                   GH_TOKEN="$GH_TOKEN_ORG" collect_stuck "$repo" >> stuck.ndjson

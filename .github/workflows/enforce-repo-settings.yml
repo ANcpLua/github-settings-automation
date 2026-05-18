@@ -39,13 +39,13 @@ jobs:
           if [ "$FULL_SWEEP" = "true" ]; then
             echo "Mode: full sweep (all active ANcpLua/* repos)"
             gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | .full_name' \
+              --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
               > targets.txt
           else
             SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
             echo "Mode: incremental (since $SINCE)"
             gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+              --jq ".[] | select(.owner.login == \"ANcpLua\") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
               > targets.txt
           fi
           echo "Targets:"
@@ -195,13 +195,13 @@ jobs:
           if [ "$FULL_SWEEP" = "true" ]; then
             echo "Mode: full sweep (all active O-ANcppLua/* repos)"
             gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-              --jq '.[] | select(.archived == false) | select(.disabled == false) | .full_name' \
+              --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | .full_name' \
               > targets.txt
           else
             SINCE="$(date -u -d '8 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
             echo "Mode: incremental (since $SINCE)"
             gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-              --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.created_at >= \"$SINCE\") | .full_name" \
+              --jq ".[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select(.created_at >= \"$SINCE\") | .full_name" \
               > targets.txt
           fi
           echo "Targets:"
