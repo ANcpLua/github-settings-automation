@@ -223,6 +223,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      models: read
     steps:
       - name: Resolve owner-scoped token
         id: token
@@ -246,7 +247,7 @@ jobs:
         if: matrix.target.why == 'BLOCKED'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
         run: |
@@ -263,12 +264,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ${{ matrix.target.repo }}
-          token: ${{ secrets[steps.token.outputs.secret] }}
+          token: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           fetch-depth: 0
 
       - name: Checkout the PR branch
         env:
-          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           PR: ${{ matrix.target.pr }}
         run: |
           set -euo pipefail
@@ -353,16 +354,17 @@ jobs:
         if: steps.tier3.outcome == 'success' && steps.tier3.outputs.response != ''
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
           ADVICE: ${{ steps.tier3.outputs.response }}
         run: |
           set -euo pipefail
           body=$(printf '## pr-heal tier 3 — second-opinion diagnosis\n\n_Source: GitHub Models / gpt-4o-mini (not an executed fix; advisory only)._\n\n%s' "$ADVICE")
-          gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
+          gh api "repos/$REPO/issues/$PR/comments" --method POST \
             -f "body=$body" \
-            || echo "::warning::Could not post tier 3 advisory on $REPO#$PR"
+            && echo "Posted tier 3 advisory on $REPO#$PR" \
+            || echo "::warning::FAILED to post tier 3 advisory on $REPO#$PR"
 
       # ─── Strategy 4: Codacy code-quality report ─────────────────────────
       # Codacy isn't an auto-fixer — it's a static-analysis surface. As a
@@ -396,7 +398,7 @@ jobs:
         if: always() && steps.claude.outcome == 'failure'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
           WHY: ${{ matrix.target.why }}
@@ -410,15 +412,16 @@ jobs:
           # scalar wants every line to share an indent. printf with
           # explicit \n is robust under both.
           body=$(printf '## pr-heal: auto-fix tiers exhausted\n\n- Tier 1 — CodeRabbit autofix: %s\n- Tier 2 — Claude Code direct: failure\n- Tier 3 — GitHub Models advisory (gpt-4o-mini): %s\n- Tier 4 — Codacy code-quality scan: %s\n\nBlock state: `%s`. Next automated retry in 15 min via the [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml) cron — but if this comment is here, the same providers will likely fail again. Human intervention recommended.\n\nIf tier 3 produced a useful diagnosis it is in the comment above this one.\n' "$CR_INVOKED" "$TIER3_OUTCOME" "$TIER4_OUTCOME" "$WHY")
-          gh api "repos/$REPO/issues/$PR/comments" --method POST --silent \
+          gh api "repos/$REPO/issues/$PR/comments" --method POST \
             -f "body=$body" \
-            || echo "::warning::Could not post tier 5 human-ping on $REPO#$PR"
+            && echo "Posted tier 5 human-ping on $REPO#$PR" \
+            || echo "::warning::FAILED to post tier 5 human-ping on $REPO#$PR (gh api exit code above)"
 
       # ─── Surface result (success path only) ─────────────────────────────
       - name: Report outcome on the PR (success)
         if: steps.claude.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets[steps.token.outputs.secret] }}
+          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
         run: echo "Healed ${REPO}#${PR} via Claude (tier 2)"
