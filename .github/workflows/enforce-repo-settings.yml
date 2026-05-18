@@ -127,7 +127,11 @@ jobs:
               echo "Skip $repo — no auto-merge.yml (not seeding into repos that opted out)"
               continue
             fi
-            current_content="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null | base64 -d)"
+            current_content_b64="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null || true)"
+            current_content=""
+            if [ -n "$current_content_b64" ] && [ "$current_content_b64" != "null" ]; then
+              current_content="$(echo "$current_content_b64" | base64 -d 2>/dev/null || true)"
+            fi
             if [ "$current_content" = "$TEMPLATE_CONTENT" ]; then
               echo "Skip $repo — auto-merge.yml already canonical"
               continue
@@ -274,7 +278,11 @@ jobs:
               echo "Skip $repo — no auto-merge.yml"
               continue
             fi
-            current_content="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null | base64 -d)"
+            current_content_b64="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.content' 2>/dev/null || true)"
+            current_content=""
+            if [ -n "$current_content_b64" ] && [ "$current_content_b64" != "null" ]; then
+              current_content="$(echo "$current_content_b64" | base64 -d 2>/dev/null || true)"
+            fi
             if [ "$current_content" = "$TEMPLATE_CONTENT" ]; then
               echo "Skip $repo — auto-merge.yml already canonical"
               continue
