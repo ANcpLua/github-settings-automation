@@ -51,8 +51,26 @@ jobs:
   triage:
     runs-on: ubuntu-latest
     steps:
+      # Preflight: TRIAGE_PAT is required by the github-script step below.
+      # If unset on this repo, the step would fail at action-input
+      # validation ("Input required and not supplied: github-token") and
+      # paint every PR red. Convert to a warning + skipped step so a
+      # missing secret produces a green run with a discoverable annotation
+      # instead of an unactionable failure.
+      - name: Check TRIAGE_PAT availability
+        id: pat
+        env:
+          TRIAGE_PAT: ${{ secrets.TRIAGE_PAT }}
+        run: |
+          if [ -z "${TRIAGE_PAT:-}" ]; then
+            echo "::warning::TRIAGE_PAT secret is not configured on this repo — skipping triage bot. See file header for setup."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Triage unresolved review threads
-        uses: actions/github-script@v7
+        if: steps.pat.outputs.available == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           github-token: ${{ secrets.TRIAGE_PAT }}
           script: |
