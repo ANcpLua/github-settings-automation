@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+#
+# CANONICAL — owned by ANcpLua/github-settings-automation/templates/nuget-publish.yml.
+# DO NOT EDIT in the consumer repo. Edits will be overwritten by the next
+# sync run of enforce-repo-settings.yml.
+#
+# Algorithm:
+#   - Triggered by `v*` tag push OR manual workflow_dispatch with an input
+#     `version` (without the leading `v`).
+#   - Discovers the repo's `.slnx` or `.sln` at the repo root, restores +
+#     builds it with the version override, packs the whole solution,
+#     pushes every produced `.nupkg` to nuget.org and GitHub Packages.
+#   - Auth uses the `NUGET_API_KEY` repo secret (also synced canonically
+#     by g-s-a's `sync-nuget-secret.sh`). To switch to OIDC trusted
+#     publishing later, set `NUGET_USER` and the workflow's per-step
+#     auth swap is the only change required.
+#
+# Opt-out:
+#   - To deliberately diverge from canonical in one specific repo, add a
+#     line `# CANONICAL-DEPARTURE: <reason>` at the top of the consumer
+#     repo's copy. The sync script honors that marker and won't overwrite.
+#   - Reasons for departure: needs Authenticode signing, multi-stage
+#     release pipeline, custom PackageId override (e.g. AL's `Dummy`
+#     trick — to be migrated separately).
+#
+# Why this is canonical and not per-repo:
+#   - Eliminates the failure mode where QYL was missing nuget-publish.yml
+#     entirely (PRD assumed it existed; tag-push was a silent no-op).
+#   - Future bumps to action SHAs / NuGet protocol / GitHub Packages auth
+#     land in ONE place and propagate to every publishable repo on the
+#     next sync sweep.
+
+name: Publish to NuGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (without v prefix, e.g. 3.0.0)'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/Directory.Packages.props'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Discover solution
+        id: sln
+        run: |
+          slnx="$(ls *.slnx 2>/dev/null | head -1 || true)"
+          [ -z "$slnx" ] && slnx="$(ls *.sln 2>/dev/null | head -1 || true)"
+          [ -z "$slnx" ] && { echo "::error::no .slnx or .sln at repo root"; exit 1; }
+          echo "Solution: $slnx"
+          echo "slnx=$slnx" >> "$GITHUB_OUTPUT"
+
+      - name: Restore (no Version override — uses last-published self-references)
+        run: dotnet restore "${{ steps.sln.outputs.slnx }}"
+
+      - name: Build (Version override applied here)
+        run: |
+          dotnet build "${{ steps.sln.outputs.slnx }}" \
+            -c Release --no-restore \
+            -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Pack
+        run: |
+          dotnet pack "${{ steps.sln.outputs.slnx }}" \
+            -c Release --no-build \
+            -o artifacts \
+            -p:Version=${{ steps.version.outputs.version }}
+          ls -la artifacts/
+
+      - name: Push to nuget.org
+        run: |
+          shopt -s nullglob
+          pkgs=(artifacts/*.nupkg)
+          if [ ${#pkgs[@]} -eq 0 ]; then
+            echo "::warning::no .nupkg artifacts produced; nothing to publish"
+            exit 0
+          fi
+          for p in "${pkgs[@]}"; do echo "Pushing $p"; done
+          dotnet nuget push "${pkgs[@]}" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --skip-duplicate
+
+      - name: Push to GitHub Packages
+        run: |
+          shopt -s nullglob
+          pkgs=(artifacts/*.nupkg)
+          [ ${#pkgs[@]} -eq 0 ] && exit 0
+          dotnet nuget push "${pkgs[@]}" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --skip-duplicate

@@ -670,3 +670,75 @@ next sweep. Candidate next additions when there's appetite:
 **Re-trigger sweep (any time):** GHA billing is now restored (g-s-a is
 public), so:
 `gh workflow run enforce-repo-settings.yml --repo ANcpLua/github-settings-automation --field sweep_mode=full`.
+
+---
+
+## Appendix 5 — Canonical NuGet publish workflow (third sync target)
+
+**Incident (2026-05-25).** Stage D's plan stated "Trusted publishing fires
+for all five packages" on tagging `v3.0.0`. Reality: QYL had no
+`nuget-publish.yml` workflow at all. The tag push was a silent no-op. All
+prior QYL versions (1.x, 2.x) had been published manually via local
+`dotnet nuget push`. The PRD text was wishful copy-paste from AL's setup.
+
+The deeper issue: every time the team added a new publishable repo, the
+publish workflow had to be re-authored by hand. That's exactly the
+per-repo drift the sync engine exists to eliminate.
+
+**Algorithmic fix (third canonical sync target).** Added to
+`github-settings-automation`:
+
+- `templates/nuget-publish.yml` — canonical workflow. Triggers on `v*`
+  tag push or `workflow_dispatch` with a `version` input. Discovers the
+  repo's `.slnx`/`.sln`, packs the whole solution, pushes every
+  `.nupkg` to nuget.org + GitHub Packages with `NUGET_API_KEY`.
+- `scripts/sync-nuget-publish.sh` — seeds the workflow into target
+  repos. Respects the `CANONICAL-DEPARTURE` opt-out marker (for repos
+  with bespoke publish flows, e.g. AL's `PackageId=Dummy` trick).
+  Skips non-.NET repos (no `global.json`).
+- `scripts/sync-nuget-secret.sh` — propagates `NUGET_API_KEY` from
+  g-s-a's own repo secret onto each opted-in target. Rotation: rotate
+  once on g-s-a, fleet picks it up on the next sweep.
+- `scripts/drift-policy.yaml` — new top-level `nuget_publishers:` list
+  defines opt-in. v1 entry: `ANcpLua/Qyl.OpenTelemetry.SemanticConventions`.
+  Apps (TourPlanner, Paperless, etc.) excluded by design. AL excluded
+  pending Dummy-trick removal.
+- `.github/workflows/enforce-repo-settings.yml` — new
+  "Sync nuget-publish.yml + NUGET_API_KEY" step in both enforce-user
+  and enforce-org jobs.
+
+**Prerequisites for the live sync.** g-s-a needs `NUGET_API_KEY` as a
+repo secret on g-s-a itself (so the workflow can propagate it):
+
+```bash
+gh secret set NUGET_API_KEY -R ANcpLua/github-settings-automation --body "$NUGET_API_KEY"
+```
+
+**Live first run (QYL 3.0.0 publish).** After the algorithm lands:
+
+1. Sync workflow file to QYL: either manually
+   (`scripts/sync-nuget-publish.sh ANcpLua/Qyl.OpenTelemetry.SemanticConventions`)
+   or via the enforce-repo-settings sweep.
+2. Set NUGET_API_KEY on QYL: either via the sync (g-s-a secret →
+   target secret) or manually
+   (`gh secret set NUGET_API_KEY -R ANcpLua/Qyl.OpenTelemetry.SemanticConventions --body "$NUGET_API_KEY"`).
+3. Trigger publish:
+   `gh workflow run nuget-publish.yml -R ANcpLua/Qyl.OpenTelemetry.SemanticConventions --field version=3.0.0`.
+4. Verify all 5 packages indexed on nuget.org at 3.0.0.
+
+**Future extensions.**
+- OIDC trusted publishing: when `NUGET_USER` secret is set on a target
+  AND the package has a Trusted Publisher policy configured on nuget.org,
+  swap the API-key auth in the workflow for `NuGet/login@v1`. Single
+  workflow edit propagates to every publisher on the next sweep.
+- Migrate AL onto canonical: requires removing AL's `PackageId=Dummy`
+  trick (set the real PackageId in the csproj directly), then dropping
+  the `CANONICAL-DEPARTURE` marker from AL's workflow if any. After
+  that, AL's bespoke `nuget-publish.yml` can be replaced by the
+  canonical template.
+
+**Why this isn't scope creep.** Same shape of artifact as
+`.coderabbit.yaml` (per-repo, drift-prone, conceptually identical
+across the fleet) — belongs in the same engine. The `nuget_publishers:`
+opt-in list keeps the blast radius small (publishers only) while the
+sync engine treats it the same as every other canonical.

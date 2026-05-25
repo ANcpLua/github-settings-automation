@@ -1,4 +1,11 @@
-# drift-policy.yaml — Watchset for the semantic config-drift detector.
+# drift-policy.yaml — Watchset for the semantic config-drift detector
+# AND the opt-in list for canonical-workflow sync (enforce-repo-settings.yml).
+#
+# `repos:` — repos under drift surveillance.
+# `watch:` — file paths the drift check inspects per repo.
+# `nuget_publishers:` — repos that should receive the canonical
+#                       nuget-publish.yml + the NUGET_API_KEY secret on
+#                       every sweep of enforce-repo-settings.yml.
 #
 # Add repos to the `repos:` list and file paths to the `watch:` list.
 # Normalisers are auto-detected from filename; override per entry with
@@ -13,6 +20,16 @@
 #   lines  — line-based; comments and blank lines stripped, lines deduped
 #            and sorted (.gitignore, .dockerignore, .gitattributes etc.)
 #   raw    — bytes as UTF-8 text, .strip()
+
+# Repos opted-in to canonical NuGet publishing. Each repo on this list
+# receives templates/nuget-publish.yml + the NUGET_API_KEY secret on
+# every sweep of enforce-repo-settings.yml. Exclusions:
+#   - Apps (TourPlanner, Paperless, etc.) — nothing to publish.
+#   - ANcpLua/ANcpLua.Analyzers — keeps its bespoke workflow (uses
+#     PackageId=Dummy + override at pack time, which the canonical doesn't
+#     handle yet). Migrate after the Dummy-trick is removed.
+nuget_publishers:
+  - ANcpLua/Qyl.OpenTelemetry.SemanticConventions
 
 repos:
   # ANcpLua framework

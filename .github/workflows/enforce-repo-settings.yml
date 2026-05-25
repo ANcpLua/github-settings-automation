@@ -102,6 +102,38 @@ jobs:
               || echo "::warning::sync-branch-protection.sh exited non-zero for $repo"
           done < targets.txt
 
+      # Sync the canonical nuget-publish.yml workflow + NUGET_API_KEY
+      # secret into repos opted-in via scripts/drift-policy.yaml's
+      # `nuget_publishers:` list. Eliminates per-repo authoring of
+      # publish workflows. Each publisher gets the same tag-triggered
+      # `dotnet pack <slnx> + push` pipeline; future bumps to action SHAs
+      # or auth shape land once and propagate. See
+      # scripts/sync-nuget-publish.sh + scripts/sync-nuget-secret.sh.
+      - name: Sync nuget-publish.yml + NUGET_API_KEY (opted-in repos)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          # Extract repos under nuget_publishers: in drift-policy.yaml.
+          # Awk avoids the pyyaml/yq dependency cliff on stock runners.
+          awk '/^nuget_publishers:/{flag=1; next} /^[a-z_]+:/{flag=0} flag && /^  - /{gsub(/^  - /, ""); print}' \
+            scripts/drift-policy.yaml > nuget-targets.txt
+          if [ ! -s nuget-targets.txt ]; then
+            echo "::notice::no repos in nuget_publishers: list; nuget sync skipped"
+          else
+            echo "NuGet publish targets:"
+            cat nuget-targets.txt
+            while read -r repo; do
+              [ -z "$repo" ] && continue
+              case "$repo" in ANcpLua/*) ;; *) continue ;; esac
+              scripts/sync-nuget-publish.sh "$repo" templates/nuget-publish.yml \
+                || echo "::warning::sync-nuget-publish.sh exited non-zero for $repo"
+              scripts/sync-nuget-secret.sh "$repo" \
+                || echo "::warning::sync-nuget-secret.sh exited non-zero for $repo"
+            done < nuget-targets.txt
+          fi
+
       # Single robust step covering all four cases: file-missing, file-present-stale,
       # ruleset-blocks-direct-write (PR fallback), already-advisory (no-op).
       # See scripts/sync-coderabbit-config.sh for the per-repo algorithm.
@@ -339,6 +371,29 @@ jobs:
             scripts/sync-branch-protection.sh "$repo" main templates/branch-protection.json \
               || echo "::warning::sync-branch-protection.sh exited non-zero for $repo"
           done < targets.txt
+
+      # Org-scope twin of the nuget-publish sync. Reads the same
+      # `nuget_publishers:` list but filters to O-ANcppLua/*.
+      - name: Sync nuget-publish.yml + NUGET_API_KEY (org publishers)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          awk '/^nuget_publishers:/{flag=1; next} /^[a-z_]+:/{flag=0} flag && /^  - /{gsub(/^  - /, ""); print}' \
+            scripts/drift-policy.yaml > nuget-targets.txt
+          if [ ! -s nuget-targets.txt ]; then
+            echo "::notice::no repos in nuget_publishers: list; nuget sync skipped"
+          else
+            while read -r repo; do
+              [ -z "$repo" ] && continue
+              case "$repo" in O-ANcppLua/*) ;; *) continue ;; esac
+              scripts/sync-nuget-publish.sh "$repo" templates/nuget-publish.yml \
+                || echo "::warning::sync-nuget-publish.sh exited non-zero for $repo"
+              scripts/sync-nuget-secret.sh "$repo" \
+                || echo "::warning::sync-nuget-secret.sh exited non-zero for $repo"
+            done < nuget-targets.txt
+          fi
 
       - name: Sync .coderabbit.yaml (seed or flip request_changes_workflow)
         env:
