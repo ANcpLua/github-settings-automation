@@ -187,6 +187,58 @@ jobs:
               || echo "::warning::Failed to seed triage-bot.yml on $repo (ruleset or PAT scope)"
           done < targets.txt
 
+      # Ensure every fleet repo that carries a Renovate config is in the
+      # Renovate App's installation scope. Workflow files can be file-synced
+      # (above), but App installation scope cannot — it's an API grant, not
+      # a file. Without this step new repos carry a Renovate config yet
+      # remain invisible to Renovate (silent gap on
+      # ANcpLua.OpenTelemetry.SemanticConventions.Analyzers tracked
+      # 2026-05-25 — repo carried a valid renovate.json for weeks but
+      # produced no PRs and no Dependency Dashboard issue).
+      #
+      # Renovate accepts its config at four common paths; we check all
+      # before skipping a repo. The .renovaterc* dotfiles and
+      # package.json#renovate key are intentionally out of scope — both
+      # are rare in this fleet and the latter would need content parsing,
+      # not just path existence.
+      #
+      # Installation id 79212889 is @ANcpLua's personal Renovate install
+      # (https://github.com/settings/installations/79212889). The PUT
+      # endpoint is idempotent — 204 whether newly added or already
+      # present — so we don't pre-check membership. Listing installations
+      # requires an App user-to-server token the PAT path can't issue,
+      # hence the hardcoded id; revisit if Renovate is ever reinstalled.
+      - name: Ensure fleet repos with a Renovate config are in Renovate App scope
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          RENOVATE_INSTALLATION_ID: "79212889"
+        run: |
+          set -uo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            has_renovate_config=false
+            for cfg in renovate.json renovate.json5 .github/renovate.json .github/renovate.json5; do
+              if gh api "repos/$repo/contents/$cfg" --silent 2>/dev/null; then
+                has_renovate_config=true
+                break
+              fi
+            done
+            if [ "$has_renovate_config" = false ]; then
+              continue
+            fi
+            repo_id="$(gh api "repos/$repo" --jq .id 2>/dev/null || true)"
+            if [ -z "$repo_id" ] || [ "$repo_id" = "null" ]; then
+              echo "::warning::Cannot resolve numeric id for $repo"
+              continue
+            fi
+            if gh api --method PUT --silent \
+                "/user/installations/$RENOVATE_INSTALLATION_ID/repositories/$repo_id" 2>/dev/null; then
+              echo "Ensured Renovate scope for $repo (id $repo_id)"
+            else
+              echo "::warning::Failed to add $repo (id $repo_id) to Renovate scope"
+            fi
+          done < targets.txt
+
   enforce-org:
     runs-on: ubuntu-latest
     steps:
