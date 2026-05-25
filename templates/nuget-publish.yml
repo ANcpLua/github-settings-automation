@@ -10,10 +10,24 @@
 #   - Discovers the repo's `.slnx` or `.sln` at the repo root, restores +
 #     builds it with the version override, packs the whole solution,
 #     pushes every produced `.nupkg` to nuget.org and GitHub Packages.
-#   - Auth uses the `NUGET_API_KEY` repo secret (also synced canonically
-#     by g-s-a's `sync-nuget-secret.sh`). To switch to OIDC trusted
-#     publishing later, set `NUGET_USER` and the workflow's per-step
-#     auth swap is the only change required.
+#
+# Auth model: NuGet TRUSTED PUBLISHING via OIDC (no static API key).
+#   - `id-token: write` permission gives the runner a short-lived OIDC
+#     token. `NuGet/login@v1` exchanges it for a TEMPORARY (per-job) API
+#     key. That key is only valid for ~30 min and is used only on this
+#     single workflow run.
+#   - Requires three things to exist:
+#       a) A Trusted Publisher policy on nuget.org/account/trustedpublishers
+#          matching this repo + this workflow file (+ optional environment).
+#          Filling in the form with Workflow File = `nuget-publish.yml`
+#          authorizes every package owned by the same Package Owner.
+#       b) `NUGET_USER` repo secret on the consumer repo (the nuget.org
+#          username, e.g. `ANcpLua`). The `NuGet/login` action embeds
+#          this in the OIDC token exchange.
+#       c) The Trusted Publisher policy's "Package Owner" must own every
+#          package being pushed (PackageId mismatch = 401 on push).
+#   - No `NUGET_API_KEY` secret needed. Rotation is automatic — keys live
+#     only for the workflow run.
 #
 # Opt-out:
 #   - To deliberately diverge from canonical in one specific repo, add a
@@ -97,7 +111,13 @@ jobs:
             -p:Version=${{ steps.version.outputs.version }}
           ls -la artifacts/
 
-      - name: Push to nuget.org
+      - name: NuGet login (OIDC → temp API key)
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to nuget.org (trusted publishing)
         run: |
           shopt -s nullglob
           pkgs=(artifacts/*.nupkg)
@@ -108,7 +128,7 @@ jobs:
           for p in "${pkgs[@]}"; do echo "Pushing $p"; done
           dotnet nuget push "${pkgs[@]}" \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "${{ steps.nuget_login.outputs.NUGET_API_KEY }}" \
             --skip-duplicate
 
       - name: Push to GitHub Packages

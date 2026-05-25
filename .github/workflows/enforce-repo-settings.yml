@@ -102,17 +102,19 @@ jobs:
               || echo "::warning::sync-branch-protection.sh exited non-zero for $repo"
           done < targets.txt
 
-      # Sync the canonical nuget-publish.yml workflow + NUGET_API_KEY
+      # Sync the canonical nuget-publish.yml workflow + NUGET_USER
       # secret into repos opted-in via scripts/drift-policy.yaml's
       # `nuget_publishers:` list. Eliminates per-repo authoring of
       # publish workflows. Each publisher gets the same tag-triggered
-      # `dotnet pack <slnx> + push` pipeline; future bumps to action SHAs
-      # or auth shape land once and propagate. See
-      # scripts/sync-nuget-publish.sh + scripts/sync-nuget-secret.sh.
-      - name: Sync nuget-publish.yml + NUGET_API_KEY (opted-in repos)
+      # OIDC trusted-publishing pipeline; future bumps to action SHAs
+      # or auth shape land once and propagate. NUGET_USER is the
+      # nuget.org username (e.g. ANcpLua) used by NuGet/login@v1 during
+      # the OIDC token exchange. See scripts/sync-nuget-publish.sh +
+      # scripts/sync-nuget-secret.sh.
+      - name: Sync nuget-publish.yml + NUGET_USER (opted-in repos)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_USER: ${{ secrets.NUGET_USER }}
         run: |
           set -euo pipefail
           # Extract repos under nuget_publishers: in drift-policy.yaml.
@@ -374,10 +376,10 @@ jobs:
 
       # Org-scope twin of the nuget-publish sync. Reads the same
       # `nuget_publishers:` list but filters to O-ANcppLua/*.
-      - name: Sync nuget-publish.yml + NUGET_API_KEY (org publishers)
+      - name: Sync nuget-publish.yml + NUGET_USER (org publishers)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_USER: ${{ secrets.NUGET_USER }}
         run: |
           set -euo pipefail
           awk '/^nuget_publishers:/{flag=1; next} /^[a-z_]+:/{flag=0} flag && /^  - /{gsub(/^  - /, ""); print}' \
