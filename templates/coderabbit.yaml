@@ -19,6 +19,19 @@
 # Per-repo overrides: drop a `.coderabbit.yaml` in the target repo to
 # override anything below. Repos with bespoke path_instructions (e.g. qyl)
 # carry their own file; this template is the default for everything else.
+#
+# v2 (2026-05-25) — fixes the retry-loop bug observed on
+# ANcpLua.Analyzers PR #174 (CR stuck 3+ hours in "Failed to post review
+# comments" loop) and adds Pro+ autofix-first recipes:
+#   - disable_cache: true -> false           (5-30x speedup on assertive)
+#   - auto_apply_labels EXPLICIT false       (prevents label-event review re-fires)
+#   - path_filters: +9 entries               (snupkg/nupkg/sarif/trx/release-artifacts/
+#                                             Snapshots/AnalyzerReleases.md noise)
+#   - finishing_touches.custom: 5 recipes    (autofix XML docs, sync-over-async,
+#                                             missing tests, simplifications, security)
+#   - knowledge_base.code_guidelines: +6 patterns
+#                                            (Directory.Build.props, Version.props,
+#                                             README.md, docs/**, package.json, etc.)
 
 language: en-US
 tone_instructions: >-
@@ -49,37 +62,63 @@ reviews:
   assess_linked_issues: true
   related_issues: true
   related_prs: true
+  # v2 FIX: keep label SUGGESTIONS in the walkthrough but never let CR mutate
+  # the PR's label set itself. auto_apply_labels: true + many labeling_instructions
+  # caused a label-event review-retry loop that deadlocked PR #174 for 3+ hours.
   suggested_labels: true
+  auto_apply_labels: false
   suggested_reviewers: true
   auto_assign_reviewers: false
   in_progress_fortune: false
   poem: false
   enable_prompt_for_ai_agents: true
   abort_on_close: true
-  disable_cache: true
+  # v2 FIX: prior `true` forced every review cold-start; assertive profile
+  # is 5-30x faster cache-warm.
+  disable_cache: false
 
   slop_detection:
     enabled: true
     label: 'review:slop'
 
+  # v2 EXPAND: exclude noise at FILTER level so CR never has to walk it.
+  # Avoids the "review of a 5.6 MB embedded JSON" failure mode large
+  # analyzer/source-gen repos hit.
   path_filters:
+    # Generated source
     - '!**/*.g.cs'
     - '!**/*.g.ts'
     - '!**/*.g.sql'
     - '!**/*.g.tsp'
     - '!**/*.Designer.cs'
+    - '!**/*.generated.*'
     - '!**/Generated/**'
     - '!**/generated/**'
+    # Build outputs + artifacts
     - '!**/bin/**'
     - '!**/obj/**'
     - '!**/dist/**'
+    - '!**/artifacts/**'
+    - '!Artifacts/**'
+    - '!**/release-artifacts/**'
+    - '!**/coverage/**'
+    # JS noise + lockfiles
     - '!**/node_modules/**'
     - '!**/*.min.js'
     - '!**/*.min.css'
     - '!**/package-lock.json'
     - '!**/pnpm-lock.yaml'
     - '!**/yarn.lock'
-    - '!Artifacts/**'
+    # CI reports + packages
+    - '!**/*.sarif'
+    - '!**/*.trx'
+    - '!**/*.nupkg'
+    - '!**/*.snupkg'
+    # Snapshot fixtures (byte-identity tests — no review value)
+    - '!**/Snapshots/**/*.expected.txt'
+    # Machine-generated catalogs (per-rule review covers the actual content)
+    - '!**/AnalyzerReleases.Shipped.md'
+    - '!**/AnalyzerReleases.Unshipped.md'
 
   auto_review:
     enabled: true
@@ -98,9 +137,55 @@ reviews:
       enabled: true
     simplify:
       enabled: true
+    # v2 ADD: Pro+ autofix-first recipes. Repo-agnostic — they apply
+    # wherever the patterns exist; no-op elsewhere.
+    custom:
+      - enabled: true
+        name: autofix public XML doc gaps
+        instructions: >-
+          For each public/protected/internal-with-InternalsVisibleTo symbol
+          added in this PR that lacks XML docs (C#) or TSDoc (TS/TSX),
+          generate them. Document intent, contracts, cancellation, exceptions,
+          compatibility. Skip private implementation members. Don't restate
+          the method name or rephrase the type signature.
+      - enabled: true
+        name: autofix sync-over-async / cancellation gaps
+        instructions: >-
+          Where a public or internal async method lacks a CancellationToken
+          parameter, add `CancellationToken cancellationToken = default` and
+          thread it through. Where `.Result` / `.Wait()` / `.GetAwaiter().GetResult()`
+          blocks an async path, rewrite to await. Don't suppress with
+          `#pragma` — fix or leave a precise comment explaining why no fix
+          is possible.
+      - enabled: true
+        name: autofix missing test coverage on changed public behavior
+        instructions: >-
+          For each new public function/class/endpoint added in this PR with
+          no corresponding test under `tests/` or `test/`, generate a focused
+          test using the repo's existing test stack (xUnit v3, vitest, pytest,
+          etc.). Cover the positive case + at least one negative case. Don't
+          generate snapshot tests unless the repo already uses them.
+      - enabled: true
+        name: autofix obvious simplifications on changed lines
+        instructions: >-
+          Within the diff's changed lines only (not the surrounding file),
+          collapse trivially-removable indirection: unused locals, redundant
+          boolean ternaries, single-use intermediate variables, switch
+          expressions where the if-else is single-arm. Don't touch code
+          outside the diff hunks. Don't reformat unrelated code.
+      - enabled: true
+        name: autofix security obvious-fixes
+        instructions: >-
+          For obvious security issues introduced in this PR — secrets in
+          plain text, path traversal sources without sanitization, SQL string
+          concatenation, unsafe deserialization defaults — apply the minimal
+          fix (env var lookup, path validator, parameterized query, safe
+          deserialization options). Leave a comment for anything that needs
+          architectural judgment instead of guessing.
 
-  # Hard gates are off in the baseline — they are repo-specific. qyl keeps
-  # its own pre_merge_checks block in qyl/.coderabbit.yaml.
+  # Hard gates are off in the baseline — they are repo-specific. qyl,
+  # ANcpLua.Analyzers, and Qyl.OpenTelemetry.SemanticConventions keep their
+  # own pre_merge_checks block in their per-repo .coderabbit.yaml.
   pre_merge_checks:
     docstrings:
       mode: 'off'
@@ -232,12 +317,22 @@ knowledge_base:
     scope: auto
   code_guidelines:
     enabled: true
+    # v2 EXPAND: include build infra + per-package READMEs so CR knows the
+    # framework conventions every repo inherits.
     filePatterns:
       - 'CLAUDE.md'
       - 'AGENTS.md'
       - '**/CLAUDE.md'
       - '**/AGENTS.md'
       - '.editorconfig'
+      - 'README.md'
+      - 'docs/**/*.md'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+      - 'Version.props'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
   jira:
     usage: disabled
   linear:
@@ -257,4 +352,6 @@ issue_enrichment:
         - 'good-first-issue'
         - 'help-wanted'
   labeling:
+    # Issue labels are safe to auto-apply (issue-event != PR-event, no review
+    # retry-loop risk on issues).
     auto_apply_labels: true
