@@ -81,6 +81,27 @@ jobs:
               -F allow_auto_merge=true
           done < targets.txt
 
+      # Force canonical branch-protection overrides from
+      # templates/branch-protection.json onto every fleet repo's default
+      # branch. Currently the only forced key is
+      # `required_conversation_resolution: false`, which prevents
+      # bot-uninstall lockouts (PR #174 on ANcpLua/ANcpLua.Analyzers was
+      # blocked for hours by 40 orphaned CodeRabbit review threads after
+      # CR was uninstalled — the canonical template removes that brittle
+      # gate fleet-wide). Repos with no branch protection at all are
+      # skipped — the sync HEALS existing protection but never
+      # AUTO-ENABLES protection on a previously unprotected branch.
+      - name: Sync branch protection (force canonical keys, preserve per-repo)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            scripts/sync-branch-protection.sh "$repo" main templates/branch-protection.json \
+              || echo "::warning::sync-branch-protection.sh exited non-zero for $repo"
+          done < targets.txt
+
       # Single robust step covering all four cases: file-missing, file-present-stale,
       # ruleset-blocks-direct-write (PR fallback), already-advisory (no-op).
       # See scripts/sync-coderabbit-config.sh for the per-repo algorithm.
@@ -300,6 +321,23 @@ jobs:
             gh api "repos/$repo" --method PATCH --silent \
               -F delete_branch_on_merge=true \
               -F allow_auto_merge=true
+          done < targets.txt
+
+      # Same canonical branch-protection sweep as enforce-user (see that
+      # job for full rationale). Org repos use REPO_SETTINGS_PAT_ORG; the
+      # canonical template + script are shared.
+      - name: Sync branch protection (force canonical keys, preserve per-repo)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) echo "Skip $repo — meta repo"; continue ;;
+            esac
+            scripts/sync-branch-protection.sh "$repo" main templates/branch-protection.json \
+              || echo "::warning::sync-branch-protection.sh exited non-zero for $repo"
           done < targets.txt
 
       - name: Sync .coderabbit.yaml (seed or flip request_changes_workflow)

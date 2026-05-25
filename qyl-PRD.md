@@ -66,23 +66,33 @@ If any of these fail, fix-forward before starting Stage A.
 
 ---
 
-## Stage A — github-settings-automation (canonical CR config + sync engine) — **DEFERRED**
+## Stage A — github-settings-automation (canonical sync engine)
 
-**Status (2026-05-25).** DEFERRED. CodeRabbit is uninstalled across the
-personal + org accounts. There is no consumer of `templates/coderabbit.yaml`
-right now and the sync workflow is also blocked by GHA billing on the
-private g-s-a repo. Re-enabling is gated on **(a)** user restoring funds and
-re-installing CR next month, and **(b)** GHA billing being restored OR
-g-s-a being flipped to public visibility. Full re-enable runbook lives in
-**Appendix 3** below and at the top of
-`templates/coderabbit.yaml`.
+**Status (2026-05-25).** **Branch-protection sync is LIVE.** CR config sync
+is **DEFERRED** until user re-enables CodeRabbit next month. Two independent
+sub-engines:
 
-**Original purpose (preserved for re-enable).** The canonical CR config has
-the retry-loop fix. Until the sync engine actually propagates it to consumer
-repos, every PR's CodeRabbit review uses the OLD canonical that deadlocked
-PR #174 for 3+ hours. When CR returns, this stage runs first.
+- **A.live: Branch-protection canonical** (`templates/branch-protection.json`
+  + `scripts/sync-branch-protection.sh`). Forces canonical keys onto every
+  fleet repo's default branch while preserving per-repo settings. Currently
+  forces `required_conversation_resolution: false` to prevent bot-uninstall
+  lockouts (see Appendix 4). Wired into both jobs of
+  `enforce-repo-settings.yml`. Healed 13 fleet repos on 2026-05-25 as the
+  inaugural sweep.
+- **A.deferred: CR config canonical** (`templates/coderabbit.yaml`). FROZEN
+  banner at top of file; sync not triggered until CR reinstall. See
+  Appendix 3.
 
-**Prerequisites (when un-deferred).** GHA billing restored OR g-s-a public.
+**Why the split matters.** The branch-protection sync is what unblocks
+fleet merges TODAY. PR #174 was stuck for hours because of an orphaned-bot
+gate (Appendix 4); the canonical fix removes that class of bug fleet-wide.
+That work is independent of CR being on or off.
+
+**Prerequisites (for the live half).** None — repo is public so GHA runs
+freely, and the script only uses the PAT scope that's already provisioned.
+
+**Prerequisites (for the CR half).** GHA billing restored (already done by
+public flip) + user reinstalls CR (next month).
 
 ### A1. Fix the broken sync workflow
 
@@ -598,3 +608,65 @@ Without CR, PR reviews are plain GitHub reviews; CI still runs; trusted
 publishing still works. The only thing missing is the conversational
 "@coderabbitai" interface on PRs and the autofix recipes. Cascade work
 proceeds without them.
+
+---
+
+## Appendix 4 — Orphaned-bot-thread lockout + canonical branch protection
+
+**Incident (2026-05-25).** After CR was uninstalled, AL PR #174 became
+unmergeable with the message `the base branch policy prohibits the merge`.
+Root cause: `ANcpLua/ANcpLua.Analyzers` had branch protection on `main`
+with `required_conversation_resolution: true`, and PR #174 carried 40
+open CR-bot review threads (per the autofix commit message: "Fixed 35
+file(s) based on 40 unresolved review comments"). With the CR bot no
+longer installed, none of those threads could be marked resolved by the
+bot itself, and no human had triaged them — so the merge stayed blocked.
+
+A fleet sweep confirmed every active ANcpLua/* repo with branch
+protection had the same `conv_resolution: true` setting, meaning **the
+lockout pattern was systemic, not local to one repo**. Any future
+bot-reviewer install + uninstall cycle would reproduce the lockout.
+
+**Algorithmic fix.** Added a new canonical sub-engine to
+`github-settings-automation`:
+
+- `templates/branch-protection.json` — declares the keys to force
+  fleet-wide. Currently only `required_conversation_resolution: false`
+  is the headline override; `allow_force_pushes` / `allow_deletions` /
+  `lock_branch` are also pinned `false` as universal safety defaults.
+- `scripts/sync-branch-protection.sh` — GET-merge-PUT pattern that
+  forces the canonical keys while preserving every other per-repo
+  protection setting (CI checks, review requirements, restrictions).
+  Skips repos with no protection (heal-only, never auto-enable).
+- New step in both jobs of `.github/workflows/enforce-repo-settings.yml`
+  ("Sync branch protection") that calls the script for every fleet
+  target.
+
+**Inaugural sweep (2026-05-25).** Healed 13 fleet repos:
+ANcpLua.Analyzers, ANcpLua.NET.Sdk, ANcpLua.Roslyn.Utilities,
+ANcpLua.Agents, ErrorOrX, dotcov, TourPlanner, TourPlanner-Angular,
+Paperless, typespec-otel-semconv, ancplua-claude-plugins, ancplua-docs,
+ANcpLua.OpenTelemetry.SemanticConventions.Analyzers. All flipped from
+`conv_resolution: true` → `false`. Qyl.OpenTelemetry.SemanticConventions
+has no branch protection at all (new repo) and was skipped per the
+heal-only rule.
+
+**Why this isn't scope creep.** The original `enforce-repo-settings.yml`
+deliberately owned `.coderabbit.yaml`, autofix workflow, auto-merge
+workflow, and `delete_branch_on_merge` — config artifacts that drift if
+left to humans. Branch protection is the same shape of artifact (it
+drifts, it's per-repo, the rules should be the same fleet-wide) and now
+lives in the same engine.
+
+**Future canonical-template extensions.** Add a key to
+`templates/branch-protection.json` and the sync engine forces it on the
+next sweep. Candidate next additions when there's appetite:
+- `required_status_checks: { strict: false, contexts: ["build"] }` — would
+  force CI-must-pass everywhere. Needs convention check first (not every
+  repo has a `build` job name).
+- `enforce_admins: false` — already the de-facto state but worth pinning
+  so an accidental UI flip doesn't lock the user out.
+
+**Re-trigger sweep (any time):** GHA billing is now restored (g-s-a is
+public), so:
+`gh workflow run enforce-repo-settings.yml --repo ANcpLua/github-settings-automation --field sweep_mode=full`.
