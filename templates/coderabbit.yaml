@@ -1,5 +1,47 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 #
+# ═══════════════════════════════════════════════════════════════════════════
+# FROZEN — CodeRabbit DISABLED across ANcpLua + O-ANcppLua (2026-05-25)
+# ═══════════════════════════════════════════════════════════════════════════
+# CodeRabbit was uninstalled from both the personal account and the
+# ANcpLua/O-ANcppLua organizations. This file is intentionally NOT being
+# synced to consumer repos until CR is re-enabled. The user (ancplua) will
+# manually re-enable next month when funds are restored.
+#
+# Why frozen, not deleted: keeping v2 content intact means re-enabling is a
+# one-step revert (delete this banner + re-trigger
+# enforce-repo-settings.yml). Re-authoring would lose the retry-loop fix
+# and the autofix recipes below.
+#
+# Incident that triggered the freeze:
+#   On ANcpLua.Analyzers PR #174 the CR autofix bot pushed commit 2fe348d
+#   bumping <ANcpLuaAnalyzersVersion> from 1.29.4 (the deliberate
+#   "last-PUBLISHED" self-reference) to 2.0.0 (the not-yet-published
+#   version this PR PRODUCES). That broke restore with NU1102 because
+#   ANcpLua.Analyzers 2.0.0 doesn't exist on nuget.org yet. The autofix
+#   bot conflated VersionPrefix (the version BUILT) with
+#   ANcpLuaAnalyzersVersion (the version CONSUMED for self-injection)
+#   despite the in-file comment warning against exactly that.
+#
+# Re-enable runbook (when funds restored):
+#   1. Confirm GitHub Actions billing is restored
+#      (github-settings-automation runs are private-repo billable —
+#      consider `gh repo edit ANcpLua/github-settings-automation
+#      --visibility public --accept-visibility-change-consequences`
+#      since this repo holds no secrets, just policy YAML).
+#   2. Decide on autofix posture — current v2 has aggressive autofix
+#      recipes (finishing_touches.custom) that caused the incident above.
+#      Consider one of:
+#      a) Add `path_filters: ['!**/Version.props', '!**/Directory.Build.props']`
+#         under `reviews:` to exclude infra files from CR's view.
+#      b) Delete the finishing_touches.custom recipes; keep CR
+#         comment-only, no auto-pushed commits.
+#      c) Reinstall CR on a plan tier without autofix.
+#   3. Delete this FROZEN banner block (this comment region).
+#   4. Re-trigger `enforce-repo-settings.yml --field sweep_mode=full`
+#      to propagate to consumer repos.
+# ═══════════════════════════════════════════════════════════════════════════
+#
 # Canonical CodeRabbit baseline for ANcpLua + O-ANcppLua repos.
 # Synced into target repos by .github/workflows/enforce-repo-settings.yml.
 #
