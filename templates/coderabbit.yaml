@@ -49,7 +49,9 @@
 # does NOT submit formal CHANGES_REQUESTED reviews and is NOT a required
 # reviewer at the branch-protection level. Merges go through GitHub native
 # auto-merge driven by Renovate's `platformAutomerge: true` (see
-# ANcpLua/renovate-config) plus per-PR opt-in for human-authored work.
+# ANcpLua/github-settings-automation — default.json preset, merged from
+# the archived ANcpLua/renovate-config repo) plus per-PR opt-in for
+# human-authored work.
 #
 # Why this shape:
 #   - Sticky CHANGES_REQUESTED reviews from CodeRabbit were the only reason
