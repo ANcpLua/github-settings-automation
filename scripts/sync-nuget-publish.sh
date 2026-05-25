@@ -48,7 +48,11 @@ existing_content_b64="$(echo "$existing_json" | jq -r '.content // empty' | tr -
 existing_sha="$(echo "$existing_json" | jq -r '.sha // empty')"
 
 if [ -n "$existing_content_b64" ]; then
-  if echo "$existing_content_b64" | base64 -d 2>/dev/null | grep -q 'CANONICAL-DEPARTURE'; then
+  # Precise match: only an ACTIVE opt-out marker (line-start, exact
+  # `# CANONICAL-DEPARTURE: ` form) counts. The substring also appears
+  # in the canonical template's own docstring explaining the marker,
+  # which must NOT trigger the opt-out (chicken-and-egg).
+  if echo "$existing_content_b64" | base64 -d 2>/dev/null | grep -qE '^# CANONICAL-DEPARTURE: '; then
     echo "::notice::$repo — nuget-publish.yml carries CANONICAL-DEPARTURE marker, sync skipped"
     exit 0
   fi
