@@ -25,8 +25,11 @@ C. ANcpLua.Analyzers 2.0.0          publish → rebundle SDK → cascade consume
 D. Qyl.OpenTelemetry.SemanticConv   publish 5 packages @ 3.0.0; runs in parallel
        3.0.0 family                  with C since registries are independent
        ↓
-E. qyl MCP refactor (Phases 2-5)    Keycloak → MCP host → legacy SSE → directory
-                                     submission. Needs clean baseline from C+D.
+E. qyl MCP refactor (Phases 2-4)    Keycloak → MCP host → directory submission.
+                                     Needs clean baseline from C+D. (Phase 4
+                                     legacy-SSE dual-transport was dropped —
+                                     Streamable HTTP only; not required by
+                                     Anthropic Connector Directory policy.)
 ```
 
 ---
@@ -299,13 +302,13 @@ The other four packages (`Stable`, `.Incubating`, `.SourceGeneration`, `.Nuke`) 
 
 ---
 
-## Stage E — qyl MCP refactor (Phases 2-5)
+## Stage E — qyl MCP refactor (Phases 2-4)
 
 **Why last.** All preceding stages have closed: SDK ships AL 2.0.0 with the correct bundled editorconfig, QYL 3.0.0 family is on nuget.org, qyl's baseline is clean. Now the MCP/Keycloak refactor can run without baseline noise.
 
 **Prerequisites.** Stages C and D complete. qyl is on a working-tree branch (currently `chore/qyl-mcp-destruction-pass-2026-05-25` with PR #369 open).
 
-Continue committing to the existing branch; prefer one PR per sub-phase (E1, E2, E3, E4 as separate merges).
+Continue committing to the existing branch; prefer one PR per sub-phase (E1, E2, E3 as separate merges).
 
 ### E1 — Phase 2: Keycloak OIDC discovery + PKCE + /auth/* endpoints
 
@@ -453,37 +456,9 @@ DoD:
 | No stdio regression | `tests/qyl.mcp.tests/` all pass |
 | Phase 1+2 reconciliation | Bugs surfaced by Phase 3 integration tests fixed in Phase 3 commits, not patched on top |
 
-### E3 — Phase 4: Legacy SSE dual endpoint
+### E3 — Phase 4: Directory submission
 
-#### E3.a (Task #42) — Enable legacy SSE alongside Streamable HTTP
-
-DoD:
-- `WithHttpTransport` options block carries both:
-  - `Stateless = false` (SSE requires stateful per `mcp-csharp-sdk-1.3.0` skill `stateless.md`).
-  - `EnableLegacySse = true` inside a `#pragma warning disable MCP9004 … restore` block, with a `// Client migration window — remove when telemetry shows <X% legacy traffic` comment.
-- `MapMcp("/mcp/{tenant}")` serves Streamable HTTP at the root of that route.
-- `/mcp/{tenant}/sse` exposes the long-lived SSE GET endpoint.
-- `/mcp/{tenant}/message?sessionId=...` accepts client POSTs on the same session.
-- Phase 3's Bearer auth + tenant scoping enforced on **both** transports — no auth bypass through legacy `/sse`.
-- Confirmed simultaneous operation: a Streamable HTTP client and a legacy SSE client connect to the same route at the same time without interference.
-- Phase 1 cleanup service + Phase 2 OAuth flow unaffected by the stateful switch (they don't depend on transport mode).
-- Integration test: opens SSE with Bearer, sends `tools/list`, receives response. Separately, a Streamable HTTP request on the same route returns the same `tools/list` result.
-- Backpressure note added to `services/qyl.collector/README.md`: SSE returns `202` immediately for POSTs (no HTTP-level backpressure on handlers — see `mcp-csharp-sdk-1.3.0` skill `transports.md`). Recommendation to add ASP.NET Core rate limiting if abuse becomes a concern.
-- `dotnet build qyl.slnx` → 0 errors.
-
-#### E3 overall — Phase 4 DONE gate
-
-| Gate | Verification |
-|---|---|
-| Both transports live | Integration tests for Streamable HTTP AND legacy SSE on the same `/mcp/{tenant}` |
-| Auth on both | No path that skips the Bearer check |
-| No Phase 3 regression | Existing Streamable HTTP integration tests still pass |
-| Migration doc | `services/qyl.collector/README.md` or `docs/connector/MCP-TRANSPORT-MIGRATION.md` explains when the SSE shim will be removed (e.g., "when <1% of MCP traffic uses SSE for 30 days") |
-| Telemetry | Span `mcp.transport` attribute distinguishes `streamable-http` vs `sse` traffic so the migration is measurable |
-
-### E4 — Phase 5: Directory submission
-
-#### E4.a (Task #43) — 5A: Tool annotations audit
+#### E3.a (Task #43) — 4A: Tool annotations audit
 
 DoD:
 - Every `[McpServerTool]` method in `services/qyl.mcp/Tools/` has:
@@ -495,7 +470,7 @@ DoD:
 - All `tests/qyl.mcp.tests/` pass (annotations are additive).
 - `mcp-csharp-sdk-1.3.0` skill `tools.md` Title + hint conventions matched exactly.
 
-#### E4.b (Task #44) — 5B: Privacy policy + connector manifest
+#### E3.b (Task #44) — 4B: Privacy policy + connector manifest
 
 DoD:
 - `docs/connector/privacy-policy.md` exists AND is hosted at a stable public URL (e.g. `https://qyl.ai/connector/privacy`) returning `200 OK`.
@@ -516,19 +491,19 @@ DoD:
 - All referenced URLs (privacy policy, logo, screenshots) actually return `200 OK` from the public internet.
 - Manifest validated against Anthropic's submission schema if available (else: manual inspection against `submission.md` examples).
 
-#### E4.c (Task #45) — 5C: Submit to Connectors Directory
+#### E3.c (Task #45) — 4C: Submit to Connectors Directory
 
 DoD:
 - Submission form completed and submitted to Anthropic per `claude.com/docs/connectors/building/submission.md`.
 - Acknowledgment received from Anthropic review queue (email or dashboard).
 - Review feedback addressed — one or more iterations of fix → resubmit:
   - Each round of feedback gets its own commit referencing the reviewer's request.
-  - Phase 1-4 surfaces can be touched if review demands (per the cascade rule).
+  - Phase 1-3 surfaces can be touched if review demands (per the cascade rule).
 - Connector accepted and listed in the public Anthropic Connector Directory.
 - Public listing URL captured in `docs/connector/STATUS.md` with submission date + acceptance date.
 - Internal announcement: connector is now a customer-visible product surface — link posted in team channels + added to `services/qyl.collector/README.md` "Public Connectors" section.
 
-#### E4 overall — Phase 5 DONE gate
+#### E3 overall — Phase 4 DONE gate
 
 | Gate | Verification |
 |---|---|
@@ -545,7 +520,7 @@ DoD:
 - `NUGET_API_KEY` is exported in the terminal shell (rotated 2026-05-24, ~3-month expiry). Stages C/D use OIDC trusted publishing so the key isn't needed for the package pushes — only `dotnet nuget unlist` and `dotnet nuget deprecate` operations need it.
 - The `enforce-repo-settings.yml` workflow is the only path canonical CR config updates take to reach consumer repos. Currently DEFERRED — see Appendix 3.
 - The CR autofix bot used to push commits to PR branches even while the formal CR review POST was failing. With CR uninstalled (2026-05-25), this is no longer a live risk — but if CR is re-enabled, the lesson stands: always verify autofix commits before merge with `git show <sha>`.
-- Phases 1-4 inside Stage E can be adjusted if Phase 5 (directory submission review) demands changes — this PRD is the source of truth, update it inline if review feedback shifts requirements.
+- Phases 1-3 inside Stage E can be adjusted if Phase 4 (directory submission review) demands changes — this PRD is the source of truth, update it inline if review feedback shifts requirements.
 
 ## Appendix 2 — Already shipped, do not re-do
 
