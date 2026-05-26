@@ -7,6 +7,23 @@
 > **DEFERRED**; B/C/D no longer wait on it. Re-enable runbook lives in
 > Appendix 3 and at the top of `templates/coderabbit.yaml`.
 
+> **2026-05-26 status panel.** Cascade state at end of day:
+>
+> | Stage | State | Reference |
+> |---|---|---|
+> | A.live (branch protection) | ✅ SHIPPED | 13-repo healed sweep 2026-05-25 |
+> | A.deferred (CR config sync) | 🔒 DEFERRED | CR reinstall — next month |
+> | B (renovate-config archived) | ✅ SHIPPED | `75670079` qyl + g-s-a |
+> | C (AL 2.0.0 + SDK + cascade) | ✅ SHIPPED | `ec9529d8` qyl catch-up; AL 2.0.1 on nuget |
+> | D (QYL 3.0.0 5-package family) | ✅ SHIPPED | All 5 indexed at 2.0.1 on nuget |
+> | **E1 (Phase 2 OIDC + PKCE)** | ✅ SHIPPED | qyl **PR #372** — 55 auth tests (51 unit + 4 integration) |
+> | **E2.a (Phase 3 lib-consumable)** | ✅ SHIPPED | qyl **PR #373** — `bc4ef827` |
+> | E2.b/c/d (Phase 3 HTTP MCP host) | ⏳ DEFERRED | Scoped at bottom of §E2; next session |
+> | **E3.a (Phase 4 tool annotations)** | ✅ SHIPPED | qyl **PR #373** — 124 tools classified; `454bfa3a` |
+> | **E3.b repo-side (privacy + manifest)** | ✅ SHIPPED | qyl **PR #373** — `be9d8fb1` |
+> | E3.b operational (hosting + assets) | 🔒 BLOCKED | qyl.ai DNS + CDN + design assets |
+> | E3.c (Anthropic directory submission) | 🔒 BLOCKED | Depends on E3.b operational + E2.b live |
+
 **Reading guide.** Each stage unblocks the next *unless* it is marked DEFERRED.
 Stages run top-to-bottom unless explicitly noted as parallel. The arrow in the
 chain is _necessary_ — skipping a stage means the next stage hits unfixable
@@ -323,7 +340,7 @@ DoD:
 - Background cleanup deletes expired rows on the same 5-min `PeriodicTimer` as `McpTokenCleanupService`.
 - Unit test asserts single-use, TTL expiration, consume-then-cleanup behavior.
 
-#### E1.b (Task #34) — `GET /auth/authorize`
+#### E1.b (Task #34) — `GET /auth/authorize` — ✅ SHIPPED 2026-05-26 (commit `a55bc12a`)
 
 DoD:
 - Returns `302 Found` with `Location` pointing at Keycloak's `authorization_endpoint`.
@@ -333,7 +350,7 @@ DoD:
 - Validates `redirect_uri` against an allowlist (per-tenant or `QYL_OAUTH_ALLOWED_REDIRECTS` env var). Unknown URIs → `400`.
 - Unit test parses `Location` header + asserts every required query param. Negative test for unknown `redirect_uri`.
 
-#### E1.c (Task #35) — `GET /auth/callback`
+#### E1.c (Task #35) — `GET /auth/callback` — ✅ SHIPPED 2026-05-26 (commit `8a2977f3`)
 
 DoD (executes in order):
 1. `IPkceStateStore.ConsumeAsync(state)` — `400` if not found or expired.
@@ -346,7 +363,7 @@ DoD (executes in order):
 - Opaque token never logged, never in error responses, never persisted anywhere except this redirect.
 - Integration test against `Testcontainers.Keycloak` walks the full happy path + negative tests for each failure case (expired state, replayed state, wrong audience, wrong nonce, tampered code).
 
-#### E1.d (Task #36) — `/auth/refresh` + `/auth/revoke`
+#### E1.d (Task #36) — `/auth/refresh` + `/auth/revoke` — ✅ SHIPPED 2026-05-26 (commit `e88a9862`)
 
 DoD:
 - `POST /auth/refresh` with `Authorization: Bearer <opaque>`:
@@ -361,7 +378,17 @@ DoD:
   - Returns `204` even if upstream revoke fails (idempotent locally).
 - Integration tests: refresh-succeeds, refresh-fails-after-upstream-revoke, revoke-then-mcp-call-rejects.
 
-#### E1.e (Task #37) — Integration tests + commit Phase 2
+#### E1.e (Task #37) — Integration tests + commit Phase 2 — ✅ SHIPPED 2026-05-26 (commit `9115a986`)
+
+> **2026-05-26 deviation.** Testcontainers.Keycloak was deferred in favor
+> of a `WebApplicationFactory<Program>`-based integration test with
+> stubbed Keycloak HTTP boundary. Trade: real JWT signature verification
+> (already covered by `KeycloakJwksValidator` unit tests + the granular
+> `CallbackEndpointTests`) vs ~200x faster CI feedback on the wiring
+> integration. Test design uses a `NonceCapturingPkceStore` decorator so
+> the stub Jwks validator can echo back the nonce the real PkceStateStore
+> persisted — endpoint code runs unchanged. Real-Keycloak coverage can be
+> added later if the Anthropic directory reviewer asks for it.
 
 DoD:
 - `Testcontainers.Keycloak v4.12` (the Java image, **not** Quarkus — different admin API shape) boots in CI in <20s with a pre-imported realm JSON (`tests/qyl.collector.integration.tests/Resources/qyl-test-realm.json`).
@@ -371,7 +398,15 @@ DoD:
 - `dotnet build qyl.slnx` → 0 errors.
 - 1-N commits for Phase 2 pushed to the branch.
 
-#### E1 overall — Phase 2 DONE gate
+#### E1 overall — Phase 2 DONE gate — ✅ MET via qyl PR #372 (55/55 auth tests, 0 warnings under `-warnaserror`)
+
+> **Phase 1 reconciliation surfaced during Phase 2.** `McpTokenStore.MapRow`
+> cast `(byte[])reader.GetValue(4)` for the `encrypted_refresh` BLOB column;
+> DuckDB.NET returns BLOBs as `UnmanagedMemoryStream`, so the cast threw
+> on every read. Bug was latent because no Phase 1 test round-tripped a
+> BLOB. Fixed in commit `8a2977f3` (E1.c) with a stream-based `ReadBlob`
+> helper — ADO.NET-portable. Surfaced by `Callback_HappyPath_OpaqueToken
+> LookupSucceeds` and `…_RefreshTokenIsEncryptedAtRest_DecryptsBack`.
 
 | Gate | Verification |
 |---|---|
@@ -396,7 +431,7 @@ railway variables --set QYL_TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 ### E2 — Phase 3: MCP host (`/mcp/{tenant}`)
 
-#### E2.a (Task #38) — 3A: Make `qyl.mcp` library-consumable
+#### E2.a (Task #38) — 3A: Make `qyl.mcp` library-consumable — ✅ SHIPPED 2026-05-26 (commit `bc4ef827`)
 
 DoD:
 - `services/qyl.mcp/qyl.mcp.csproj` consumable as a library (existing Exe wrapper for stdio dev remains; both ship from the same assembly).
@@ -406,7 +441,17 @@ DoD:
 - `dotnet build qyl.slnx --nologo /clp:ErrorsOnly` → 0 errors.
 - All `tests/qyl.mcp.tests/` tests pass.
 
-#### E2.b (Task #39) — 3B: `/mcp/{tenant}` endpoint with Bearer auth
+#### E2.b (Task #39) — 3B: `/mcp/{tenant}` endpoint with Bearer auth — ⏳ DEFERRED
+
+> **2026-05-26 deferral.** Requires `ModelContextProtocol.AspNetCore`
+> package reference + custom `BearerOpaqueTokenAuthenticationHandler` +
+> RFC 9728 `.well-known/oauth-protected-resource` endpoint. Each
+> sub-piece is well-bounded but the cumulative scope (and ASP.NET Core
+> auth-handler nuance) is more than this session's remaining budget.
+> Next-session start point: `services/qyl.collector/Hosting/CollectorMcp
+> Extensions.cs` (already exposes `AddQylCollectorMcp` which wires
+> `ConfigureForHttp`; just needs `app.MapMcp("/mcp/{tenant}")` in
+> Program.cs + the Bearer handler).
 
 DoD:
 - Collector calls `AddMcpServer().WithHttpTransport(o => { o.Stateless = true; ... })`.
@@ -422,7 +467,7 @@ DoD:
 - `GET /mcp/{tenant}/.well-known/oauth-protected-resource` returns RFC 9728 Protected Resource Metadata (`resource`, `authorization_servers`, `scopes_supported`, `bearer_methods_supported`).
 - Integration test: MCP `initialize` with (a) no Bearer → `401`, (b) revoked Bearer → `401`, (c) wrong-tenant Bearer → `403`, (d) valid Bearer → `200` + `tools/list` returns expected tools.
 
-#### E2.c (Task #40) — 3C: Per-tenant tool scoping via ClaimsPrincipal
+#### E2.c (Task #40) — 3C: Per-tenant tool scoping via ClaimsPrincipal — ⏳ DEFERRED (depends on E2.b)
 
 DoD:
 - `ConfigureSessionOptions` callback wired (per `mcp-csharp-sdk-1.3.0` skill `stateless.md` — runs per request in stateless mode).
@@ -431,7 +476,7 @@ DoD:
 - `ClaimsPrincipal` parameter auto-injected into any tool method declaring it (verified per `mcp-csharp-sdk-1.3.0` skill `identity.md`).
 - Integration test: two tokens (tenants A and B), each calls `qyl.list_services` — results disjoint by `service.name` (no cross-tenant leakage even with co-mingled DuckDB data).
 
-#### E2.d (Task #41) — 3D: Integration tests + commit Phase 3
+#### E2.d (Task #41) — 3D: Integration tests + commit Phase 3 — ⏳ DEFERRED (depends on E2.b/c)
 
 DoD:
 - End-to-end integration test combines Phase 2's `Testcontainers.Keycloak` + the collector running in-process:
@@ -458,7 +503,14 @@ DoD:
 
 ### E3 — Phase 4: Directory submission
 
-#### E3.a (Task #43) — 4A: Tool annotations audit
+#### E3.a (Task #43) — 4A: Tool annotations audit — ✅ SHIPPED 2026-05-26 (commit `454bfa3a`)
+
+> 124 tools classified: **93 ReadOnly + 31 Destructive**. 30 violations
+> surfaced and fixed. Audit doc at `docs/connector/tool-annotations-audit.md`
+> in the qyl repo (per-tool table + re-running script embedded). Borderline
+> cases (`check_regressions`, analyze-LLM tools) defaulted to the asymmetric-
+> cost rule (Destructive when uncertain; ReadOnly only when the operation
+> is genuinely a query).
 
 DoD:
 - Every `[McpServerTool]` method in `services/qyl.mcp/Tools/` has:
@@ -470,7 +522,21 @@ DoD:
 - All `tests/qyl.mcp.tests/` pass (annotations are additive).
 - `mcp-csharp-sdk-1.3.0` skill `tools.md` Title + hint conventions matched exactly.
 
-#### E3.b (Task #44) — 4B: Privacy policy + connector manifest
+#### E3.b (Task #44) — 4B: Privacy policy + connector manifest — ✅ REPO-SIDE SHIPPED 2026-05-26 (commit `be9d8fb1`), 🔒 OPERATIONAL BLOCKED
+
+> **Repo-side ✅** (`docs/connector/{privacy-policy.md, manifest.yaml,
+> STATUS.md}`):
+> - Privacy policy covers every PRD-mandated section (data accessed
+>   per-table, flow, retention, token lifecycle, deletion, security,
+>   contact).
+> - `manifest.yaml` validated as parseable YAML; embeds the full
+>   submission_checklist so future-us doesn't rediscover the gates.
+> - `STATUS.md` live tracker matching this PRD's E3 structure.
+>
+> **Operational 🔒** (blocked outside the repo):
+> - `qyl.ai` DNS + CDN setup so `privacy_policy_url` + `terms_of_service_url`
+>   + asset URLs return 200.
+> - Logo PNGs (64×64 + 512×512) + ≥3 in-Claude screenshots.
 
 DoD:
 - `docs/connector/privacy-policy.md` exists AND is hosted at a stable public URL (e.g. `https://qyl.ai/connector/privacy`) returning `200 OK`.
@@ -491,7 +557,12 @@ DoD:
 - All referenced URLs (privacy policy, logo, screenshots) actually return `200 OK` from the public internet.
 - Manifest validated against Anthropic's submission schema if available (else: manual inspection against `submission.md` examples).
 
-#### E3.c (Task #45) — 4C: Submit to Connectors Directory
+#### E3.c (Task #45) — 4C: Submit to Connectors Directory — 🔒 BLOCKED
+
+> Blocked on E3.b operational gates + E2.b live (the directory reviewer
+> does an end-to-end smoke test against `server_url`). Submission queue
+> tracked in `docs/connector/STATUS.md` in the qyl repo; URL captured on
+> acceptance per DoD below.
 
 DoD:
 - Submission form completed and submitted to Anthropic per `claude.com/docs/connectors/building/submission.md`.
@@ -694,7 +765,7 @@ gh secret set NUGET_API_KEY -R ANcpLua/github-settings-automation --body "$NUGET
 1. Sync workflow file to QYL: either manually
    (`scripts/sync-nuget-publish.sh ANcpLua/Qyl.OpenTelemetry.SemanticConventions`)
    or via the enforce-repo-settings sweep.
-2. Set NUGET_API_KEY on QYL: either via the sync (g-s-a secret →
+2. Set NUGET_API_KEY on QYL: either via`` the sync (g-s-a secret →
    target secret) or manually
    (`gh secret set NUGET_API_KEY -R ANcpLua/Qyl.OpenTelemetry.SemanticConventions --body "$NUGET_API_KEY"`).
 3. Trigger publish:
@@ -717,3 +788,90 @@ gh secret set NUGET_API_KEY -R ANcpLua/github-settings-automation --body "$NUGET
 across the fleet) — belongs in the same engine. The `nuget_publishers:`
 opt-in list keeps the blast radius small (publishers only) while the
 sync engine treats it the same as every other canonical.
+
+---
+
+## Appendix 6 — 2026-05-26 Phase 2 + 3A + 4A/B execution retrospective
+
+Captures what shipped this session, what shifted, and what to remember for
+Phase 3B and onward.
+
+### What shipped
+
+- **Phase 2 (E1.a-e) — qyl PR #372** on branch `feat/path-c-phase-2b-authorize`.
+  4 commits (a55bc12a, 8a2977f3, e88a9862, 9115a986). All 4 `/auth/*`
+  endpoints + a Phase 1 BLOB-read bug fix in `McpTokenStore.MapRow` (was
+  casting `(byte[])reader.GetValue(4)` which threw because DuckDB.NET
+  returns BLOBs as `UnmanagedMemoryStream`; latent because no Phase 1
+  test exercised the read path). 55/55 auth tests pass; 0 warnings under
+  `-warnaserror`.
+- **Phase 3A (E2.a) + Phase 4A (E3.a) + Phase 4B (E3.b repo-side) —
+  qyl PR #373** on branch `feat/path-c-phase-3-mcp-host` (stacked on PR
+  #372). 3 commits (bc4ef827, 454bfa3a, be9d8fb1). qyl.mcp library-
+  consumable, 124 tool annotations classified + audited, privacy policy
+  + connector manifest + STATUS tracker drafted.
+
+### Architectural decisions to remember
+
+1. **WebApplicationFactory config-ordering gotcha.** `AddQylCollectorAuth(
+   builder.Configuration, ...)` reads keycloak env vars synchronously into
+   a closure during Program.cs Main, **before** `ConfigureAppConfiguration`
+   callbacks fire. InMemoryCollection added in test factory is invisible
+   to that read. Workaround: re-call `services.Configure<KeycloakOptions>(...)`
+   in test `ConfigureServices` — IOptions resolution applies ALL callbacks
+   in order, last one wins per-property. Documented in
+   `tests/qyl.collector.tests/Functional/AuthFlowIntegrationTests.cs`.
+
+2. **Top-level `Program` namespace collision when project-referencing two
+   Web entry points.** Adding a ProjectReference from qyl.collector →
+   qyl.mcp (for E2.a) caused CS0433 in qyl.collector.tests because both
+   assemblies expose a global-namespace `Program`. Fix: explicit
+   `internal partial class Program;` in qyl.mcp's Program.cs to hide it
+   from external consumers. qyl.collector's `public partial class Program;`
+   stays (test factory needs it).
+
+3. **Refactor preserving extension points (architectural collapse rule).**
+   `QylMcpServerRegistration.Configure` hard-coded stdio transport. Split
+   into `ConfigureForStdio` + `ConfigureForHttp` + private `ConfigureCore`.
+   Old `Configure` kept as `[Obsolete]` forwarder, error: false. Future
+   transports (WebSocket, gRPC) drop in as `ConfigureForX` without
+   disturbing the shared core.
+
+4. **Asymmetric-cost rule for tool annotation classification.** Borderline
+   tools default to `Destructive = true` because the cost of mis-labeling
+   a destructive tool as ReadOnly (user surprised by mutation) >> cost of
+   the reverse (extra approval click). Encoded in
+   `docs/connector/tool-annotations-audit.md` methodology section.
+
+### Trade-offs accepted
+
+- **Testcontainers.Keycloak deferred** in favor of `WebApplicationFactory
+  <Program>` + stub Keycloak boundary. ~200x faster CI feedback; real JWT
+  signature verification still covered by unit tests. Re-evaluate if
+  Anthropic directory reviewer asks for real-Keycloak coverage.
+- **E2.b/c/d (HTTP MCP host + Bearer handler + per-tenant scoping +
+  integration tests) deferred** to next session. E2.a alone is sufficient
+  to unblock that work; the deferral is scope-budget, not technical.
+- **E3.b operational gates blocked outside the repo** (qyl.ai DNS + CDN
+  + design assets). Tracked in `docs/connector/STATUS.md` so future-us
+  doesn't rediscover what's pending.
+
+### Pre-existing failures NOT regressed
+
+`tests/qyl.collector.tests/`'s `AnomalyEndpointsTests` (3 failures) and
+`Semconv.RegenCleanTests` (1 failure) failed BEFORE Phase 2's branch
+existed (confirmed via `git stash` and re-run on the pristine working
+tree). Out of Phase 2 scope; will be picked up under tasks #26/#27
+(analyzer docs generator rewrite post-renumber) or as separate
+fix-forward PRs.
+
+### Next-session starting points
+
+| Item | Where to start |
+|---|---|
+| E2.b (`MapMcp` + Bearer handler + RFC 9728) | `services/qyl.collector/Hosting/CollectorMcpExtensions.cs` (already exposes `AddQylCollectorMcp` wiring `ConfigureForHttp`). Add `app.MapMcp("/mcp/{tenant}")` in `Program.cs` + new `BearerOpaqueTokenAuthenticationHandler`. |
+| E2.c (per-tenant ClaimsPrincipal scoping) | After E2.b. Wire `ConfigureSessionOptions` callback in `ConfigureForHttp`'s lambda; per `mcp-csharp-sdk-1.3.0` skill `stateless.md`. |
+| E2.d (Phase 3 integration tests) | Extend the existing `AuthFlowIntegrationTests` factory with MCP client setup. |
+| E3.b operational | User-driven: qyl.ai DNS + CDN + design assets. Inputs from `docs/connector/manifest.yaml` submission_checklist. |
+| E3.c submission | Form at claude.com/docs/connectors/building/submission.md once E3.b gates close. |
+| CR re-enable (Stage A.deferred) | Next month. Runbook in Appendix 3 §"Re-enable runbook". |
