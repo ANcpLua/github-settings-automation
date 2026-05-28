@@ -90,7 +90,13 @@ put_file() {
 content_sha() {
   local target="$1"
   local branch="$2"
-  gh api "repos/$repo/contents/$target?ref=$branch" --jq '.sha // empty' 2>/dev/null || true
+  local response
+
+  if ! response="$(gh api "repos/$repo/contents/$target?ref=$branch" 2>/dev/null)"; then
+    return 0
+  fi
+
+  jq -r '.sha // empty' <<<"$response"
 }
 
 queue_if_needed "AGENTS.md" "$agents_template"

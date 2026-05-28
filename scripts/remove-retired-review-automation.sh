@@ -64,7 +64,13 @@ sort -u "$tmp_paths" > "$tmp_unique"
 content_sha() {
   local path="$1"
   local branch="$2"
-  gh api "repos/$repo/contents/$path?ref=$branch" --jq '.sha // empty' 2>/dev/null || true
+  local response
+
+  if ! response="$(gh api "repos/$repo/contents/$path?ref=$branch" 2>/dev/null)"; then
+    return 0
+  fi
+
+  jq -r '.sha // empty' <<<"$response"
 }
 
 delete_file() {
