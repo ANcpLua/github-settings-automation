@@ -7,8 +7,9 @@
 # Tier separation (this file vs. github-settings-automation/pr-heal.yml):
 #
 # - THIS FILE (per-repo, event-driven):
-#     Fires immediately on PR open/sync. Handles BOT and AI-AGENT PRs that
-#     should auto-merge with no human latency.
+#     Fires immediately on PR open/sync/review-submit. Handles BOT and
+#     AI-AGENT PRs that should auto-merge with no human latency, plus
+#     Codex-approved manual PRs.
 #
 # - pr-heal.yml Job 0 (central cron, 15-min sweep):
 #     Handles OWNER-authored PRs (incl. agents acting via gh CLI auth as
@@ -44,6 +45,8 @@ name: Auto-merge
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   contents: write
@@ -55,7 +58,10 @@ jobs:
     if: |
       github.event.pull_request.draft == false && (
         startsWith(github.event.pull_request.head.ref, 'codex/') ||
-        startsWith(github.event.pull_request.head.ref, 'copilot/')
+        startsWith(github.event.pull_request.head.ref, 'copilot/') ||
+        (github.event_name == 'pull_request_review'
+         && github.event.review.state == 'approved'
+         && github.event.review.user.login == 'chatgpt-codex-connector[bot]')
       )
     steps:
       - name: Enable native auto-merge (squash)
