@@ -2,10 +2,10 @@
 # Sync canonical branch-protection overrides onto one repo's default branch.
 #
 # Why this exists: PR #174 on ANcpLua/ANcpLua.Analyzers was blocked by
-# `required_conversation_resolution: true` after CodeRabbit was uninstalled
-# (40 orphaned bot review threads, no way to resolve). The canonical policy
-# forces that field to `false` so no future bot-uninstall locks the fleet
-# out the same way. The sync engine OWNS that field going forward.
+# `required_conversation_resolution: true` after a reviewer integration was
+# removed (orphaned bot review threads, no way to resolve). The canonical
+# policy forces that field to `false` so no future bot-uninstall locks the
+# fleet out the same way. The sync engine OWNS that field going forward.
 #
 # Algorithm:
 #   1. GET current protection. If branch has none (404), skip — the sync

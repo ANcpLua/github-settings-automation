@@ -9,44 +9,65 @@
   "timezone": "UTC",
   "dependencyDashboard": true,
   "commitMessagePrefix": "deps:",
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "platformAutomerge": true,
   "prHourlyLimit": 2,
   "prConcurrentLimit": 5,
   "packageRules": [
     {
       "description": "Hygiene: digest pins + lockfile maintenance — content-locking, automerge always",
-      "matchUpdateTypes": ["pin", "digest", "pinDigest", "lockFileMaintenance"],
+      "matchUpdateTypes": [
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance"
+      ],
       "automerge": true,
       "automergeType": "pr"
     },
     {
       "description": "Patch bumps — automerge if CI is green (cross-ecosystem)",
-      "matchUpdateTypes": ["patch"],
+      "matchUpdateTypes": [
+        "patch"
+      ],
       "automerge": true,
       "automergeType": "pr"
     },
     {
       "description": "npm devDependencies — minor bumps automerge (build-time only, no runtime risk)",
-      "matchManagers": ["npm"],
-      "matchDepTypes": ["devDependencies"],
-      "matchUpdateTypes": ["minor"],
+      "matchManagers": [
+        "npm"
+      ],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
       "automerge": true,
       "automergeType": "pr"
     },
     {
       "description": "Block unstable npm versions by default — alpha/beta/rc/preview/pre/dev/canary/next/nightly",
-      "matchManagers": ["npm"],
+      "matchManagers": [
+        "npm"
+      ],
       "allowedVersions": "!/(?:alpha|beta|rc|preview|pre|dev|canary|next|nightly)/i"
     },
     {
-      "description": "Block unstable NuGet versions by default — alpha/beta/preview/pre/dev/experimental/nightly. RC is allowed; the MAF matrix and per-package exceptions below override as needed",
-      "matchDatasources": ["nuget"],
+      "description": "Block unstable NuGet versions by default — alpha/beta/preview/pre/dev/experimental/nightly. RC is allowed; package-family exceptions below override as needed",
+      "matchDatasources": [
+        "nuget"
+      ],
       "allowedVersions": "!/(?:alpha|beta|preview|pre|dev|experimental|nightly)/i"
     },
     {
       "description": "Known-prerelease NuGet exceptions: first-party packages plus upstreams with no stable release. Resets allowedVersions so the default-deny does not freeze legitimate prerelease pins",
-      "matchDatasources": ["nuget"],
+      "matchDatasources": [
+        "nuget"
+      ],
       "matchPackageNames": [
         "/^ANcpLua\\./",
         "/^Qyl\\./",
@@ -59,7 +80,9 @@
     },
     {
       "description": "ANcpLua first-party (cross-repo) — automerge minor/patch",
-      "matchPackageNames": ["/^ANcpLua\\./"],
+      "matchPackageNames": [
+        "/^ANcpLua\\./"
+      ],
       "groupName": "ancplua-sdk",
       "automerge": true,
       "automergeType": "pr"
@@ -87,8 +110,10 @@
       "automergeType": "pr"
     },
     {
-      "description": "AI client packages excluding Microsoft Agent Framework package-status matrix",
-      "matchDatasources": ["nuget"],
+      "description": "AI client packages excluding the Microsoft Agent Framework family",
+      "matchDatasources": [
+        "nuget"
+      ],
       "matchPackageNames": [
         "/^Microsoft\\.Extensions\\.AI/",
         "/^OpenAI/",
@@ -103,7 +128,9 @@
     },
     {
       "description": "Meziantou family",
-      "matchPackageNames": ["/^Meziantou\\./"],
+      "matchPackageNames": [
+        "/^Meziantou\\./"
+      ],
       "groupName": "meziantou",
       "automerge": true,
       "automergeType": "pr"
@@ -128,822 +155,122 @@
     },
     {
       "description": "OpenAPI / YAML",
-      "matchPackageNames": ["/^Microsoft\\.OpenApi/", "/^YamlDotNet/"],
+      "matchPackageNames": [
+        "/^Microsoft\\.OpenApi/",
+        "/^YamlDotNet/"
+      ],
       "groupName": "openapi",
       "automerge": true,
       "automergeType": "pr"
     },
     {
       "description": "OpenTelemetry",
-      "matchPackageNames": ["/^OpenTelemetry/"],
+      "matchPackageNames": [
+        "/^OpenTelemetry/"
+      ],
       "groupName": "opentelemetry",
       "automerge": true,
       "automergeType": "pr"
     },
     {
       "description": "Major bumps require manual review by default",
-      "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "labels": ["dependencies", "major"]
-    },
-    {
-      "description": "MAF stable packages — stable versions only, automerge including majors",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": [
-        "Microsoft.Agents.AI",
-        "Microsoft.Agents.AI.Abstractions",
-        "Microsoft.Agents.AI.Foundry",
-        "Microsoft.Agents.AI.OpenAI",
-        "Microsoft.Agents.AI.Workflows",
-        "Microsoft.Agents.AI.Workflows.Generators"
+      "matchUpdateTypes": [
+        "major"
       ],
-      "groupName": "microsoft-agent-framework-stable",
-      "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
-      "automerge": true,
-      "automergeType": "pr",
-      "dependencyDashboardApproval": false,
-      "labels": ["dependencies", "microsoft-agent-framework", "stable"],
-      "prPriority": 5,
-      "prBodyNotes": [
-        "ANcpLua Microsoft Agent Framework matrix 2026-05-05: this package is stable-track. Stable versions only; preview/alpha/beta/dev builds are intentionally excluded."
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "major"
       ]
     },
     {
-      "description": "MAF RC packages — stable or RC versions only, automerge including majors",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": [
-        "Microsoft.Agents.AI.Declarative",
-        "Microsoft.Agents.AI.Purview",
-        "Microsoft.Agents.AI.Workflows.Declarative",
-        "Microsoft.Agents.AI.Workflows.Declarative.Foundry"
+      "description": "Microsoft Agent Framework — dynamic family rule, stable/RC versions only",
+      "matchDatasources": [
+        "nuget"
       ],
-      "groupName": "microsoft-agent-framework-rc",
+      "matchPackageNames": [
+        "/^Microsoft\\.Agents\\.AI(?:\\.|$)/",
+        "Aspire.Hosting.AgentFramework.DevUI"
+      ],
+      "groupName": "microsoft-agent-framework",
       "ignoreUnstable": false,
       "respectLatest": false,
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+(?:-[Rr][Cc]\\d+)?$/",
       "automerge": true,
       "automergeType": "pr",
       "dependencyDashboardApproval": false,
-      "labels": ["dependencies", "microsoft-agent-framework", "rc"],
+      "labels": [
+        "dependencies",
+        "microsoft-agent-framework"
+      ],
       "prPriority": 4,
       "prBodyNotes": [
-        "ANcpLua Microsoft Agent Framework matrix 2026-05-05: this package is RC-track. Stable and RC versions are allowed; preview/alpha/beta/dev builds are intentionally excluded."
-      ]
-    },
-    {
-      "description": "MAF preview/alpha packages — do not suggest preview/alpha; allow only future stable or RC with manual approval",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": [
-        "Aspire.Hosting.AgentFramework.DevUI",
-        "Microsoft.Agents.AI.A2A",
-        "Microsoft.Agents.AI.AGUI",
-        "Microsoft.Agents.AI.Anthropic",
-        "Microsoft.Agents.AI.AzureAI.Persistent",
-        "Microsoft.Agents.AI.CopilotStudio",
-        "Microsoft.Agents.AI.CosmosNoSql",
-        "Microsoft.Agents.AI.DevUI",
-        "Microsoft.Agents.AI.DurableTask",
-        "Microsoft.Agents.AI.Foundry.Hosting",
-        "Microsoft.Agents.AI.FoundryMemory",
-        "Microsoft.Agents.AI.GitHub.Copilot",
-        "Microsoft.Agents.AI.Hosting",
-        "Microsoft.Agents.AI.Hosting.A2A",
-        "Microsoft.Agents.AI.Hosting.A2A.AspNetCore",
-        "Microsoft.Agents.AI.Hosting.AGUI.AspNetCore",
-        "Microsoft.Agents.AI.Hosting.AzureFunctions",
-        "Microsoft.Agents.AI.Hosting.OpenAI",
-        "Microsoft.Agents.AI.ProjectTemplates"
-      ],
-      "groupName": "microsoft-agent-framework-preview-alpha-quarantine",
-      "ignoreUnstable": false,
-      "respectLatest": false,
-      "allowedVersions": "/^\\d+\\.\\d+\\.\\d+(?:-[Rr][Cc]\\d+)?$/",
-      "automerge": false,
-      "dependencyDashboardApproval": true,
-      "labels": ["dependencies", "microsoft-agent-framework", "preview-or-alpha", "manual-review"],
-      "prPriority": -5,
-      "prBodyNotes": [
-        "ANcpLua Microsoft Agent Framework matrix 2026-05-05: this package is preview/alpha-track. Renovate may propose only future stable or RC releases; preview/alpha/beta/dev builds are intentionally excluded and never automerged."
+        "Dynamic Microsoft Agent Framework rule: stable and RC versions are allowed; preview/alpha/beta/dev builds are excluded without maintaining a static package matrix."
       ]
     },
     {
       "description": "MAF legacy package — migrate AzureAI naming to Foundry",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": ["Microsoft.Agents.AI.AzureAI"],
+      "matchDatasources": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.Agents.AI.AzureAI"
+      ],
       "replacementName": "Microsoft.Agents.AI.Foundry",
-      "replacementVersion": "1.4.0",
       "automerge": false,
       "dependencyDashboardApproval": true,
-      "labels": ["dependencies", "microsoft-agent-framework", "legacy", "migration"],
+      "labels": [
+        "dependencies",
+        "microsoft-agent-framework",
+        "legacy",
+        "migration"
+      ],
       "prBodyNotes": [
-        "Microsoft.Agents.AI.AzureAI is marked superseded in the ANcpLua Microsoft Agent Framework matrix 2026-05-05. Prefer Microsoft.Agents.AI.Foundry. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
+        "Microsoft.Agents.AI.AzureAI is superseded by Microsoft.Agents.AI.Foundry. Renovate chooses the available replacement version dynamically. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
       ]
     },
     {
       "description": "MAF legacy package — migrate Declarative AzureAI workflows to Declarative Foundry workflows",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": ["Microsoft.Agents.AI.Workflows.Declarative.AzureAI"],
+      "matchDatasources": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.Agents.AI.Workflows.Declarative.AzureAI"
+      ],
       "replacementName": "Microsoft.Agents.AI.Workflows.Declarative.Foundry",
-      "replacementVersion": "1.4.0-rc1",
       "automerge": false,
       "dependencyDashboardApproval": true,
-      "labels": ["dependencies", "microsoft-agent-framework", "legacy", "migration"],
+      "labels": [
+        "dependencies",
+        "microsoft-agent-framework",
+        "legacy",
+        "migration"
+      ],
       "prBodyNotes": [
-        "Microsoft.Agents.AI.Workflows.Declarative.AzureAI is marked superseded in the ANcpLua Microsoft Agent Framework matrix 2026-05-05. Prefer Microsoft.Agents.AI.Workflows.Declarative.Foundry. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
+        "Microsoft.Agents.AI.Workflows.Declarative.AzureAI is superseded by Microsoft.Agents.AI.Workflows.Declarative.Foundry. Renovate chooses the available replacement version dynamically. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
       ]
     },
     {
       "description": "MAF legacy preview package — migrate FoundryMemory to Foundry",
-      "matchDatasources": ["nuget"],
-      "matchPackageNames": ["Microsoft.Agents.AI.FoundryMemory"],
+      "matchDatasources": [
+        "nuget"
+      ],
+      "matchPackageNames": [
+        "Microsoft.Agents.AI.FoundryMemory"
+      ],
       "replacementName": "Microsoft.Agents.AI.Foundry",
-      "replacementVersion": "1.4.0",
       "automerge": false,
       "dependencyDashboardApproval": true,
-      "labels": ["dependencies", "microsoft-agent-framework", "legacy", "preview", "migration"],
+      "labels": [
+        "dependencies",
+        "microsoft-agent-framework",
+        "legacy",
+        "preview",
+        "migration"
+      ],
       "prBodyNotes": [
-        "Microsoft.Agents.AI.FoundryMemory is marked superseded in the ANcpLua Microsoft Agent Framework matrix 2026-05-05. Prefer Microsoft.Agents.AI.Foundry. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
+        "Microsoft.Agents.AI.FoundryMemory is superseded by Microsoft.Agents.AI.Foundry. Renovate chooses the available replacement version dynamically. Replacement rules do not apply to custom.regex-managed Version.props entries, so Version.props migrations may require manual edits."
       ]
-    },
-    {
-      "description": ".NET SDK — stable channel only, block previews",
-      "matchManagers": ["dotnet-sdk"],
-      "matchPackageNames": ["dotnet-sdk"],
-      "allowedVersions": "/^[0-9]+\\.[0-9]+\\.[0-9]+$/"
-    }
-  ],
-  "customManagers": [
-    {
-      "description": "Version.props — Roslyn",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<RoslynVersion>(?<currentValue>[^<]+)</RoslynVersion>"],
-      "depNameTemplate": "Microsoft.CodeAnalysis.CSharp",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Roslyn Analyzers",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<RoslynAnalyzersVersion>(?<currentValue>[^<]+)</RoslynAnalyzersVersion>"],
-      "depNameTemplate": "Microsoft.CodeAnalysis.Analyzers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Reference assemblies",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<BasicReferenceAssembliesVersion>(?<currentValue>[^<]+)</BasicReferenceAssembliesVersion>"],
-      "depNameTemplate": "Basic.Reference.Assemblies.Net100",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ASP.NET Core (canary: Mvc.Testing, what consumers reference)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AspNetCoreVersion>(?<currentValue>[^<]+)</AspNetCoreVersion>"],
-      "depNameTemplate": "Microsoft.AspNetCore.Mvc.Testing",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Extensions umbrella (canary: Diagnostics.Testing, what consumers reference)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftExtensionsVersion>(?<currentValue>[^<]+)</MicrosoftExtensionsVersion>"],
-      "depNameTemplate": "Microsoft.Extensions.Diagnostics.Testing",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Extensions.AI Abstractions",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftExtensionsAIAbstractionsVersion>(?<currentValue>[^<]+)</MicrosoftExtensionsAIAbstractionsVersion>"],
-      "depNameTemplate": "Microsoft.Extensions.AI.Abstractions",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Extensions.AI OpenAI",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftExtensionsAIOpenAIVersion>(?<currentValue>[^<]+)</MicrosoftExtensionsAIOpenAIVersion>"],
-      "depNameTemplate": "Microsoft.Extensions.AI.OpenAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Bcl AsyncInterfaces",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftBclAsyncInterfacesVersion>(?<currentValue>[^<]+)</MicrosoftBclAsyncInterfacesVersion>"],
-      "depNameTemplate": "Microsoft.Bcl.AsyncInterfaces",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Bcl HashCode",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<BclHashCodeVersion>(?<currentValue>[^<]+)</BclHashCodeVersion>"],
-      "depNameTemplate": "Microsoft.Bcl.HashCode",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — System.Threading.Channels",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<SystemThreadingChannelsVersion>(?<currentValue>[^<]+)</SystemThreadingChannelsVersion>"],
-      "depNameTemplate": "System.Threading.Channels",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Framework",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouFrameworkVersion>(?<currentValue>[^<]+)</MeziantouFrameworkVersion>"],
-      "depNameTemplate": "Meziantou.Framework",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Framework.FullPath",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouFullPathVersion>(?<currentValue>[^<]+)</MeziantouFullPathVersion>"],
-      "depNameTemplate": "Meziantou.Framework.FullPath",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Framework.TemporaryDirectory",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouTemporaryDirectoryVersion>(?<currentValue>[^<]+)</MeziantouTemporaryDirectoryVersion>"],
-      "depNameTemplate": "Meziantou.Framework.TemporaryDirectory",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Framework.Threading",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouThreadingVersion>(?<currentValue>[^<]+)</MeziantouThreadingVersion>"],
-      "depNameTemplate": "Meziantou.Framework.Threading",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Framework.DependencyScanning",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouDependencyScanningVersion>(?<currentValue>[^<]+)</MeziantouDependencyScanningVersion>"],
-      "depNameTemplate": "Meziantou.Framework.DependencyScanning",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Meziantou.Analyzer",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MeziantouAnalyzerVersion>(?<currentValue>[^<]+)</MeziantouAnalyzerVersion>"],
-      "depNameTemplate": "Meziantou.Analyzer",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — xUnit v3",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<XunitV3Version>(?<currentValue>[^<]+)</XunitV3Version>"],
-      "depNameTemplate": "xunit.v3",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — NUnit",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<NUnitVersion>(?<currentValue>[^<]+)</NUnitVersion>"],
-      "depNameTemplate": "NUnit",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — TUnit",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<TUnitCoreVersion>(?<currentValue>[^<]+)</TUnitCoreVersion>"],
-      "depNameTemplate": "TUnit.Core",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — bunit",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<BunitVersion>(?<currentValue>[^<]+)</BunitVersion>"],
-      "depNameTemplate": "bunit",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — AwesomeAssertions",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AwesomeAssertionsVersion>(?<currentValue>[^<]+)</AwesomeAssertionsVersion>"],
-      "depNameTemplate": "AwesomeAssertions",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — AwesomeAssertions.Analyzers",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AwesomeAssertionsAnalyzersVersion>(?<currentValue>[^<]+)</AwesomeAssertionsAnalyzersVersion>"],
-      "depNameTemplate": "AwesomeAssertions.Analyzers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Testing.Platform",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MTPExtensionsVersion>(?<currentValue>[^<]+)</MTPExtensionsVersion>"],
-      "depNameTemplate": "Microsoft.Testing.Platform",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.NET.Test.Sdk",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<TestSdkVersion>(?<currentValue>[^<]+)</TestSdkVersion>"],
-      "depNameTemplate": "Microsoft.NET.Test.Sdk",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.CodeCoverage.Collector",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<CodeCoverageVersion>(?<currentValue>[^<]+)</CodeCoverageVersion>"],
-      "depNameTemplate": "Microsoft.CodeCoverage.Collector",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Extensions.Diagnostics.Testing",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<DiagnosticsTestingVersion>(?<currentValue>[^<]+)</DiagnosticsTestingVersion>"],
-      "depNameTemplate": "Microsoft.Extensions.Diagnostics.Testing",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — GitHubActionsTestLogger (MTP)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<GitHubActionsLoggerMTPVersion>(?<currentValue>[^<]+)</GitHubActionsLoggerMTPVersion>"],
-      "depNameTemplate": "GitHubActionsTestLogger",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Sbom.Targets",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<SbomTargetsVersion>(?<currentValue>[^<]+)</SbomTargetsVersion>"],
-      "depNameTemplate": "Microsoft.Sbom.Targets",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — BannedApiAnalyzers",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<BannedApiAnalyzersVersion>(?<currentValue>[^<]+)</BannedApiAnalyzersVersion>"],
-      "depNameTemplate": "Microsoft.CodeAnalysis.BannedApiAnalyzers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — JonSkeet.RoslynAnalyzers",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<JonSkeetAnalyzersVersion>(?<currentValue>[^<]+)</JonSkeetAnalyzersVersion>"],
-      "depNameTemplate": "JonSkeet.RoslynAnalyzers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — OpenTelemetry umbrella (canary: OpenTelemetry.Api, what consumers reference; instrumentation packages can lag)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<OpenTelemetryVersion>(?<currentValue>[^<]+)</OpenTelemetryVersion>"],
-      "depNameTemplate": "OpenTelemetry.Api",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — NuGet.Protocol",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<NuGetVersion>(?<currentValue>[^<]+)</NuGetVersion>"],
-      "depNameTemplate": "NuGet.Protocol",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — MSBuild.StructuredLogger",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MSBuildStructuredLoggerVersion>(?<currentValue>[^<]+)</MSBuildStructuredLoggerVersion>"],
-      "depNameTemplate": "MSBuild.StructuredLogger",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — SourceLink.GitHub",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftSourceLinkVersion>(?<currentValue>[^<]+)</MicrosoftSourceLinkVersion>"],
-      "depNameTemplate": "Microsoft.SourceLink.GitHub",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Deployment.DotNet.Releases",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftDeploymentDotNetReleasesVersion>(?<currentValue>[^<]+)</MicrosoftDeploymentDotNetReleasesVersion>"],
-      "depNameTemplate": "Microsoft.Deployment.DotNet.Releases",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.OpenApi",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftOpenApiVersion>(?<currentValue>[^<]+)</MicrosoftOpenApiVersion>"],
-      "depNameTemplate": "Microsoft.OpenApi",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.OpenApi.Readers",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftOpenApiReadersVersion>(?<currentValue>[^<]+)</MicrosoftOpenApiReadersVersion>"],
-      "depNameTemplate": "Microsoft.OpenApi.Readers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — YamlDotNet",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<YamlDotNetVersion>(?<currentValue>[^<]+)</YamlDotNetVersion>"],
-      "depNameTemplate": "YamlDotNet",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Aspire.Hosting.AgentFramework.DevUI (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AspireHostingAgentFrameworkDevUIVersion>(?<currentValue>[^<]+)</AspireHostingAgentFrameworkDevUIVersion>"],
-      "depNameTemplate": "Aspire.Hosting.AgentFramework.DevUI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.A2A (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIA2AVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIA2AVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.A2A",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Abstractions (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIAbstractionsVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIAbstractionsVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Abstractions",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.AGUI (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIAGUIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIAGUIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.AGUI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Anthropic (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIAnthropicVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIAnthropicVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Anthropic",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.AzureAI (MAF legacy/superseded by Foundry)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIAzureAIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIAzureAIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.AzureAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.AzureAI.Persistent (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIAzureAIPersistentVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIAzureAIPersistentVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.AzureAI.Persistent",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.CopilotStudio (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAICopilotStudioVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAICopilotStudioVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.CopilotStudio",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.CosmosNoSql (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAICosmosNoSqlVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAICosmosNoSqlVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.CosmosNoSql",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Declarative (MAF RC)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIDeclarativeVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIDeclarativeVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Declarative",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.DevUI (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIDevUIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIDevUIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.DevUI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.DurableTask (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIDurableTaskVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIDurableTaskVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.DurableTask",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Foundry (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIFoundryVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIFoundryVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Foundry",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Foundry.Hosting (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIFoundryHostingVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIFoundryHostingVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Foundry.Hosting",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.FoundryMemory (MAF legacy preview, superseded by Foundry)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIFoundryMemoryVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIFoundryMemoryVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.FoundryMemory",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.GitHub.Copilot (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIGitHubCopilotVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIGitHubCopilotVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.GitHub.Copilot",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting.A2A (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingA2AVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingA2AVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting.A2A",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting.A2A.AspNetCore (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingA2AAspNetCoreVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingA2AAspNetCoreVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting.A2A.AspNetCore",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting.AGUI.AspNetCore (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingAGUIAspNetCoreVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingAGUIAspNetCoreVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting.AGUI.AspNetCore",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting.AzureFunctions (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingAzureFunctionsVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingAzureFunctionsVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting.AzureFunctions",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Hosting.OpenAI (MAF alpha)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIHostingOpenAIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIHostingOpenAIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Hosting.OpenAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.OpenAI (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIOpenAIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIOpenAIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.OpenAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.ProjectTemplates (MAF preview)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIProjectTemplatesVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIProjectTemplatesVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.ProjectTemplates",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Purview (MAF RC)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIPurviewVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIPurviewVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Purview",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Workflows (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIWorkflowsVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIWorkflowsVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Workflows",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Workflows.Declarative (MAF RC)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIWorkflowsDeclarativeVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIWorkflowsDeclarativeVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Workflows.Declarative",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Workflows.Declarative.AzureAI (MAF legacy/superseded by Workflows.Declarative.Foundry)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIWorkflowsDeclarativeAzureAIVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIWorkflowsDeclarativeAzureAIVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Workflows.Declarative.AzureAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Workflows.Declarative.Foundry (MAF RC)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIWorkflowsDeclarativeFoundryVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIWorkflowsDeclarativeFoundryVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Workflows.Declarative.Foundry",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.Agents.AI.Workflows.Generators (MAF stable)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MicrosoftAgentsAIWorkflowsGeneratorsVersion>(?<currentValue>[^<]+)</MicrosoftAgentsAIWorkflowsGeneratorsVersion>"],
-      "depNameTemplate": "Microsoft.Agents.AI.Workflows.Generators",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — OpenAI",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<OpenAIVersion>(?<currentValue>[^<]+)</OpenAIVersion>"],
-      "depNameTemplate": "OpenAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Azure.AI.OpenAI",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AzureAIOpenAIVersion>(?<currentValue>[^<]+)</AzureAIOpenAIVersion>"],
-      "depNameTemplate": "Azure.AI.OpenAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Azure.Identity",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AzureIdentityVersion>(?<currentValue>[^<]+)</AzureIdentityVersion>"],
-      "depNameTemplate": "Azure.Identity",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Anthropic.SDK",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AnthropicSDKVersion>(?<currentValue>[^<]+)</AnthropicSDKVersion>"],
-      "depNameTemplate": "Anthropic.SDK",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — OllamaSharp",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<OllamaSharpVersion>(?<currentValue>[^<]+)</OllamaSharpVersion>"],
-      "depNameTemplate": "OllamaSharp",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Mscc.GenerativeAI",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MsccGenerativeAIVersion>(?<currentValue>[^<]+)</MsccGenerativeAIVersion>"],
-      "depNameTemplate": "Mscc.GenerativeAI",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Mscc.GenerativeAI.Microsoft",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MsccGenerativeAIMicrosoftVersion>(?<currentValue>[^<]+)</MsccGenerativeAIMicrosoftVersion>"],
-      "depNameTemplate": "Mscc.GenerativeAI.Microsoft",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Moq",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<MoqVersion>(?<currentValue>[^<]+)</MoqVersion>"],
-      "depNameTemplate": "Moq",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — JetBrains.Annotations",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<JetBrainsAnnotationsVersion>(?<currentValue>[^<]+)</JetBrainsAnnotationsVersion>"],
-      "depNameTemplate": "JetBrains.Annotations",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — Microsoft.CodeAnalysis.Analyzer.Testing umbrella",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<AnalyzerTestingVersion>(?<currentValue>[^<]+)</AnalyzerTestingVersion>"],
-      "depNameTemplate": "Microsoft.CodeAnalysis.CSharp.Analyzer.Testing",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ANcpLua.Analyzers (first-party)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<ANcpLuaAnalyzersVersion>(?<currentValue>[^<]+)</ANcpLuaAnalyzersVersion>"],
-      "depNameTemplate": "ANcpLua.Analyzers",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ANcpLua.Roslyn.Utilities (first-party)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<ANcpLuaRoslynUtilitiesVersion>(?<currentValue>[^<]+)</ANcpLuaRoslynUtilitiesVersion>"],
-      "depNameTemplate": "ANcpLua.Roslyn.Utilities",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ANcpLua.Roslyn.Utilities.Sources (first-party)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<ANcpLuaRoslynUtilitiesSourcesVersion>(?<currentValue>[^<]+)</ANcpLuaRoslynUtilitiesSourcesVersion>"],
-      "depNameTemplate": "ANcpLua.Roslyn.Utilities.Sources",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ANcpLua.Roslyn.Utilities.Polyfills (first-party)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<ANcpLuaRoslynUtilitiesPolyfillsVersion>(?<currentValue>[^<]+)</ANcpLuaRoslynUtilitiesPolyfillsVersion>"],
-      "depNameTemplate": "ANcpLua.Roslyn.Utilities.Polyfills",
-      "datasourceTemplate": "nuget"
-    },
-    {
-      "description": "Version.props — ANcpLua.Roslyn.Utilities.Testing (first-party)",
-      "customType": "regex",
-      "managerFilePatterns": ["(^|/)Version\\.props$"],
-      "matchStrings": ["<ANcpLuaRoslynUtilitiesTestingVersion>(?<currentValue>[^<]+)</ANcpLuaRoslynUtilitiesTestingVersion>"],
-      "depNameTemplate": "ANcpLua.Roslyn.Utilities.Testing",
-      "datasourceTemplate": "nuget"
     }
   ]
 }

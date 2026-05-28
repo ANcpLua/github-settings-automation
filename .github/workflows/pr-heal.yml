@@ -1,32 +1,19 @@
-# PR auto-heal — fleet-wide AI fallback chain.
+# PR auto-heal — fleet-wide Codex handoff.
 #
-# Mission (see qyl-self-healing-vision in CLAUDE memory):
-# every "needs human" PR-merge gate is a defect. This workflow scans
-# every active repo under ANcpLua/* + O-ANcppLua/* every 15 minutes,
-# finds PRs that are stuck (merge conflicts, failing required checks,
-# or sticky `CHANGES_REQUESTED` from a bot), and walks an AI provider
-# fallback chain until one of them resolves the block.
+# This workflow scans every active repo under ANcpLua/* + O-ANcppLua/* every
+# 15 minutes, finds PRs that are stuck (merge conflicts, failing required
+# checks, or unresolved review gates), and posts one copyable Codex cloud
+# handoff prompt.
 #
-# Provider chain (in order, falling through on 429 / unavailable):
-#   1. CodeRabbit autofix — `@coderabbitai autofix` comment. Free,
-#      uses CR's own quota; resolves CR-flagged review feedback.
-#   2. Claude Code direct — `anthropics/claude-code-action@v1` running
-#      against the PR's checkout. Resolves merge conflicts + CI fixes
-#      autonomously with Anthropic quota.
-#   3. (future) OpenAI Codex CLI on `OPENAI_API_KEY`.
-#   4. (future) GitHub Copilot Workspace agent.
-#
-# Surfacing failure: if every provider 429s or genuinely fails, post a
-# precise comment on the PR ("all four providers exhausted; next retry
-# at $time") so the human-touch event is informed, not a mystery.
+# The official Codex GitHub integration supports @codex in PR comments, but
+# this workflow does not pretend bot-authored comments are a guaranteed
+# automation API. It surfaces the handoff and lets a human start the Codex
+# cloud task from the PR.
 #
 # Secrets this workflow needs in github-settings-automation:
 #   - REPO_SETTINGS_PAT_USER + REPO_SETTINGS_PAT_ORG (already set)
-#     with Pull requests: Read and write + Contents: Read and write
-#     for cross-repo branch pushes and PR comments.
-#   - CLAUDE_CODE_OAUTH_TOKEN — generated via `claude setup-token`.
-#     Single token at the central repo replaces the per-repo secret
-#     pattern in templates/refix.yml.
+#     with Pull requests: Read and write + Issues: Read and write for
+#     cross-repo PR lookup and comments.
 
 name: PR auto-heal
 
@@ -68,23 +55,17 @@ jobs:
         run: |
           set -uo pipefail
           # Trusted-bot list — instant auto-merge OK, no cooldown needed.
-          BOTS='^(renovate\[bot\]|dependabot\[bot\]|copilot\[bot\]|coderabbitai\[bot\]|jules\[bot\]|claude-code\[bot\]|github-actions\[bot\])$'
+          BOTS='^(renovate\[bot\]|dependabot\[bot\]|copilot\[bot\]|github-actions\[bot\])$'
           # Trusted-user list — author is a human (incl. agents acting via
           # ANcpLua's gh CLI auth). For these we enforce a cooldown window
-          # so CodeRabbit / Codex / Claude PR-review tiers land their
-          # advisory comments BEFORE we auto-flip merge-on-green. Without
-          # this, a PR opened via `gh CLI` on green CI fires Job 0 in the
-          # next 15-min sweep and merges before a single reviewer comment
-          # ever appears (cf. PR#170 incident, 2026-05-18).
+          # so Codex review has time to land before we auto-flip merge-on-green.
+          # Without this, a PR opened via
+          # `gh CLI` on green CI fires Job 0 in the next 15-min sweep and
+          # merges before a single reviewer comment ever appears (cf. PR#170
+          # incident, 2026-05-18).
           USERS='^(ANcpLua)$'
-          # Cooldown in seconds. 300 = 5 min covers CodeRabbit (typically
-          # 30–60s), Codex Code Review on push (60–120s), and Claude Code
-          # Review (60–180s) with safety margin.
+          # Cooldown in seconds. 300 = 5 min covers Codex Code Review on push.
           COOLDOWN_SECONDS=300
-          enabled=0
-          direct_merged=0
-          skipped_cooldown=0
-          skipped_no_protection=0
 
           process_repo() {
             local repo="$1"
@@ -155,7 +136,7 @@ jobs:
           if [ -n "${EXPLICIT:-}" ]; then
             # Format: owner/repo#N — explicit single-PR dispatch. Still
             # resolve actual mergeStateStatus so the strategy gates fire
-            # correctly (BLOCKED → CR autofix path, BEHIND/DIRTY → rebase
+            # correctly (BLOCKED → reviewer/status path, BEHIND/DIRTY → rebase
             # path). Use the owner-appropriate PAT so private repos work.
             repo="${EXPLICIT%#*}"
             pr="${EXPLICIT#*#}"
@@ -210,8 +191,8 @@ jobs:
           jq . targets.json
           echo "targets_json=$(jq -c . targets.json)" >> "$GITHUB_OUTPUT"
 
-  heal:
-    name: Heal ${{ matrix.target.repo }}#${{ matrix.target.pr }}
+  handoff:
+    name: Post Codex handoff for ${{ matrix.target.repo }}#${{ matrix.target.pr }}
     needs: scan
     if: needs.scan.outputs.targets_json != '[]' && needs.scan.outputs.targets_json != ''
     runs-on: ubuntu-latest
@@ -221,207 +202,45 @@ jobs:
       matrix:
         target: ${{ fromJSON(needs.scan.outputs.targets_json) }}
     permissions:
-      contents: write
       pull-requests: write
-      models: read
     steps:
-      - name: Resolve owner-scoped token
-        id: token
-        env:
-          REPO: ${{ matrix.target.repo }}
-        run: |
-          set -euo pipefail
-          owner="${REPO%%/*}"
-          case "$owner" in
-            ANcpLua) echo "secret=REPO_SETTINGS_PAT_USER" >> "$GITHUB_OUTPUT" ;;
-            O-ANcppLua) echo "secret=REPO_SETTINGS_PAT_ORG" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::Unsupported owner: $owner"; exit 1 ;;
-          esac
-
-      # ─── Strategy 1: CodeRabbit autofix (free, fastest, narrowest) ──────
-      # CR's autofix is good at responding to its own review feedback. It
-      # cannot resolve merge conflicts, but if the block is BLOCKED with a
-      # sticky CR review, asking CR to retry can shake it loose.
-      - name: CodeRabbit autofix
-        id: cr_autofix
-        if: matrix.target.why == 'BLOCKED'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
-          REPO: ${{ matrix.target.repo }}
-          PR: ${{ matrix.target.pr }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$REPO/issues/$PR/comments" --method POST \
-            -f "body=@coderabbitai autofix" \
-            --silent && echo "cr_invoked=true" >> "$GITHUB_OUTPUT" \
-                     || echo "cr_invoked=false" >> "$GITHUB_OUTPUT"
-
-      # ─── Strategy 2: Claude Code direct ─────────────────────────────────
-      # The heavy lifter. Checks out the PR branch, runs Claude with a
-      # precise diagnostic prompt, lets it commit + push the fix. Works
-      # for merge conflicts AND failing CI.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          repository: ${{ matrix.target.repo }}
-          token: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
-          fetch-depth: 0
-
-      - name: Checkout the PR branch
-        env:
-          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
-          PR: ${{ matrix.target.pr }}
-        run: |
-          set -euo pipefail
-          gh pr checkout "$PR" --force
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-settings-automation[bot]"
-          git config user.email "automation+settings@ancplua.dev"
-
-      - name: Claude Code — resolve block
-        id: claude
-        continue-on-error: true
-        uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251 # v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            You are running headless in CI. PR #${{ matrix.target.pr }} on
-            ${{ matrix.target.repo }} is currently in mergeStateStatus
-            "${{ matrix.target.why }}". The PR branch is checked out in
-            the working directory and the local git is configured to push
-            back to it.
-
-            Your task:
-            1. Diagnose what is blocking the merge:
-               - BEHIND / DIRTY → the branch needs to absorb main. Rebase
-                 onto the default branch and resolve any conflicts. Prefer
-                 the PR's intent for behavioural code; prefer main for
-                 unrelated infra/version bumps.
-               - BLOCKED → required reviewer has CHANGES_REQUESTED, or a
-                 required status check is failing. If the requested change
-                 is bot-flagged and the new posture (CodeRabbit advisory,
-                 see qyl-self-healing-vision in CLAUDE memory) makes the
-                 verdict stale, leave it — the dismissal layer handles it.
-                 If the required check is a real test failure, fix the
-                 code so the test passes.
-               - UNSTABLE → at least one required check failed. Inspect the
-                 failure, fix the code, commit, push.
-            2. Push the result to the PR branch (it is the current branch).
-            3. Do NOT change the PR title/description and do NOT add new
-               files outside the scope strictly needed to resolve the block.
-
-            Hard constraints:
-            - No --no-verify, no --force-with-lease against another author.
-            - Run repo-local test/lint commands (the repo's CLAUDE.md, if
-              present, lists them). Re-run them after your fix.
-            - If you cannot resolve in <= 30 turns of work, exit and leave
-              the branch as you found it (no half-fixes).
-
-      # ─── Strategy 3: different-vendor AI advisory via GitHub Models ─────
-      # When Claude (tier 2) exits non-zero (quota, refusal, timeout), the
-      # heavy auto-fix lane is closed. Tier 3 isn't another auto-fixer —
-      # it's a *second opinion* from a different vendor that posts a
-      # structured diagnosis as a PR comment. Cheap, free (uses the GH
-      # Models entitlement bundled with the actions runner's GH_TOKEN),
-      # different vendor (Llama-3.3 by default, swap via `model:` input).
-      # Does NOT modify code.
-      - name: Tier 3 — different-vendor advisory (GitHub Models)
-        id: tier3
-        if: steps.claude.outcome == 'failure'
-        continue-on-error: true
-        uses: actions/ai-inference@17ff458cb182449bbb2e43701fcd98f6af8f6570 # v2
-        with:
-          model: openai/gpt-4o-mini
-          token: ${{ secrets.GITHUB_TOKEN }}
-          max-tokens: 1500
-          system-prompt: |
-            You are a senior engineer triaging a stuck pull request. Your job
-            is to produce a precise diagnostic comment, not a code patch.
-            Output exactly three sections, each one short paragraph:
-              **Likely cause:** what is blocking the merge given the state.
-              **Suggested next step:** one concrete command or owner action.
-              **If escalating:** which expert/team to ping and why.
-            No filler, no praise, no markdown beyond the three bold headers.
-          prompt: |
-            PR #${{ matrix.target.pr }} on ${{ matrix.target.repo }} is
-            stuck at mergeStateStatus=${{ matrix.target.why }}. Tier 1
-            (CodeRabbit autofix) and Tier 2 (Claude Code direct) both
-            could not unblock it. Diagnose and advise.
-
-      - name: Tier 3 — post advisory comment
-        if: steps.tier3.outcome == 'success' && steps.tier3.outputs.response != ''
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
-          REPO: ${{ matrix.target.repo }}
-          PR: ${{ matrix.target.pr }}
-          ADVICE: ${{ steps.tier3.outputs.response }}
-        run: |
-          set -euo pipefail
-          body=$(printf '## pr-heal tier 3 — second-opinion diagnosis\n\n_Source: GitHub Models / gpt-4o-mini (not an executed fix; advisory only)._\n\n%s' "$ADVICE")
-          gh api "repos/$REPO/issues/$PR/comments" --method POST \
-            -f "body=$body" \
-            && echo "Posted tier 3 advisory on $REPO#$PR" \
-            || echo "::warning::FAILED to post tier 3 advisory on $REPO#$PR"
-
-      # ─── Strategy 4: Codacy code-quality report ─────────────────────────
-      # Codacy isn't an auto-fixer — it's a static-analysis surface. As a
-      # tier-4 fallback it gives the human-touch event one more concrete
-      # angle: "here are the quality findings the auto-fix tiers couldn't
-      # address." Triggered via the codacy/codacy-analysis-cli action.
-      # No-op when CODACY_PROJECT_TOKEN isn't set — Codacy is opt-in per
-      # repo, the action degrades to "report-only" without it.
-      - name: Tier 4 — Codacy code-quality scan (opt-in via secret)
-        id: tier4
-        if: steps.claude.outcome == 'failure' && env.HAS_CODACY == 'true'
-        continue-on-error: true
-        env:
-          HAS_CODACY: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
-        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08 # v4
-        with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          verbose: true
-          output: tier4-codacy.sarif
-          format: sarif
-          gh-code-scanning-compat: true
-          max-allowed-issues: 9999  # surface all, don't fail the step
-
-      # ─── Strategy 5: human-ping with full diagnostic ────────────────────
-      # The honest endpoint: every auto-fix attempt failed. Post the most
-      # actionable summary we have (tier 3 advisory if present, plus tier
-      # outcomes) so the human-touch event opens with full context, not
-      # "something failed, idk what." This is `if: failure() || always()`
-      # style but only when everything before exhausted.
-      - name: Tier 5 — human-ping with diagnostic
-        if: always() && steps.claude.outcome == 'failure'
+      # Codex cloud is the preferred remote GitHub repair path. We post a
+      # copyable prompt instead of assuming workflow-authored comments are a
+      # supported trigger for Codex cloud tasks.
+      - name: Post Codex cloud handoff prompt
+        id: codex_handoff
         continue-on-error: true
         env:
           GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
           REPO: ${{ matrix.target.repo }}
           PR: ${{ matrix.target.pr }}
           WHY: ${{ matrix.target.why }}
-          CR_INVOKED: ${{ steps.cr_autofix.outputs.cr_invoked || 'skipped' }}
-          TIER3_OUTCOME: ${{ steps.tier3.outcome }}
-          TIER4_OUTCOME: ${{ steps.tier4.outcome }}
         run: |
           set -euo pipefail
-          # Body built via printf to avoid heredoc-vs-YAML indentation
-          # conflict: heredoc terminators want column-1 EOF, YAML block
-          # scalar wants every line to share an indent. printf with
-          # explicit \n is robust under both.
-          body=$(printf '## pr-heal: auto-fix tiers exhausted\n\n- Tier 1 — CodeRabbit autofix: %s\n- Tier 2 — Claude Code direct: failure\n- Tier 3 — GitHub Models advisory (gpt-4o-mini): %s\n- Tier 4 — Codacy code-quality scan: %s\n\nBlock state: `%s`. Next automated retry in 15 min via the [pr-heal.yml](https://github.com/ANcpLua/github-settings-automation/blob/main/.github/workflows/pr-heal.yml) cron — but if this comment is here, the same providers will likely fail again. Human intervention recommended.\n\nIf tier 3 produced a useful diagnosis it is in the comment above this one.\n' "$CR_INVOKED" "$TIER3_OUTCOME" "$TIER4_OUTCOME" "$WHY")
+          marker='<!-- pr-heal:codex-handoff -->'
+          existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.body | contains("<!-- pr-heal:codex-handoff -->"))] | length' 2>/dev/null || echo 0)"
+          if [ "${existing:-0}" != "0" ]; then
+            echo "status=already-present" >> "$GITHUB_OUTPUT"
+            echo "$REPO#$PR already has a Codex handoff prompt"
+            exit 0
+          fi
+          body="$(cat <<EOF
+          $marker
+          ## pr-heal: Codex handoff prompt
+
+          This PR is stuck at mergeStateStatus "$WHY".
+
+          To start a Codex cloud repair task, copy this into a new PR comment:
+
+          ~~~text
+          @codex fix the merge blocker on this PR. Read AGENTS.md and code_review.md, reproduce the blocker with repo-local commands, make the smallest safe change, run the relevant checks, and push the fix back to this branch. If the blocker is external, comment with the exact command output that proves it.
+          ~~~
+
+          _Source: pr-heal.yml. This is a handoff prompt, not a guaranteed workflow API trigger._
+          EOF
+          )"
           gh api "repos/$REPO/issues/$PR/comments" --method POST \
             -f "body=$body" \
-            && echo "Posted tier 5 human-ping on $REPO#$PR" \
-            || echo "::warning::FAILED to post tier 5 human-ping on $REPO#$PR (gh api exit code above)"
-
-      # ─── Surface result (success path only) ─────────────────────────────
-      - name: Report outcome on the PR (success)
-        if: steps.claude.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ startsWith(matrix.target.repo, 'O-ANcppLua/') && secrets.REPO_SETTINGS_PAT_ORG || secrets.REPO_SETTINGS_PAT_USER }}
-          REPO: ${{ matrix.target.repo }}
-          PR: ${{ matrix.target.pr }}
-        run: echo "Healed ${REPO}#${PR} via Claude (tier 2)"
+            --silent
+          echo "status=posted" >> "$GITHUB_OUTPUT"
