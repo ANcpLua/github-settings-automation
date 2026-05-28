@@ -16,13 +16,20 @@
 > | B (renovate-config archived) | ✅ SHIPPED | `75670079` qyl + g-s-a |
 > | C (AL 2.0.0 + SDK + cascade) | ✅ SHIPPED | `ec9529d8` qyl catch-up; AL 2.0.1 on nuget |
 > | D (QYL 3.0.0 5-package family) | ✅ SHIPPED | All 5 indexed at 2.0.1 on nuget |
-> | **E1 (Phase 2 OIDC + PKCE)** | ✅ SHIPPED | qyl **PR #372** — 55 auth tests (51 unit + 4 integration) |
-> | **E2.a (Phase 3 lib-consumable)** | ✅ SHIPPED | qyl **PR #373** — `bc4ef827` |
+> | **E1.a (Phase 2A KeycloakClient + PKCE store)** | ✅ MERGED to main | qyl **#370** (squash `54341027`) |
+> | **E1.b-e (Phase 2 /auth/* endpoints + tests)** | 🟢 OPEN, MERGEABLE | qyl **#372** — 55 auth tests; merged main 2026-05-28 to clear cascade conflict |
+> | **E2.a (Phase 3A lib-consumable)** | 🟢 in #372 | #373 (`bc4ef827`) was merged INTO #372's branch — folded into the consolidated PR |
 > | E2.b/c/d (Phase 3 HTTP MCP host) | ⏳ DEFERRED | Scoped at bottom of §E2; next session |
-> | **E3.a (Phase 4 tool annotations)** | ✅ SHIPPED | qyl **PR #373** — 124 tools classified; `454bfa3a` |
-> | **E3.b repo-side (privacy + manifest)** | ✅ SHIPPED | qyl **PR #373** — `be9d8fb1` |
+> | **E3.a (Phase 4A tool annotations)** | 🟢 in #372 | 124 tools classified; `454bfa3a` (via #373→#372) |
+> | **E3.b repo-side (privacy + manifest)** | 🟢 in #372 | `be9d8fb1` (via #373→#372) |
 > | E3.b operational (hosting + assets) | 🔒 BLOCKED | qyl.ai DNS + CDN + design assets |
 > | E3.c (Anthropic directory submission) | 🔒 BLOCKED | Depends on E3.b operational + E2.b live |
+>
+> **#372 is now the consolidated Phase 2+3+4 PR to main** (38 files, +2443).
+> #373 (Phase 3A/4A/B) squash-merged into #372's branch, so one PR carries
+> everything. main has only Phase 2A so far (via #370). CI re-running on the
+> integrated HEAD; main has **no required status checks**, so the (PR-preview)
+> Railway deploy failure does not gate the merge.
 
 **Reading guide.** Each stage unblocks the next *unless* it is marked DEFERRED.
 Stages run top-to-bottom unless explicitly noted as parallel. The arrow in the
