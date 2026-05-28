@@ -257,7 +257,6 @@ DEFAULT_NORMALISERS = {
     "global.json": "json",
     ".prettierrc": "json",
     # YAML
-    ".coderabbit.yaml": "yaml",
     ".codecov.yml": "yaml",
     "codecov.yml": "yaml",
     "dependabot.yml": "yaml",

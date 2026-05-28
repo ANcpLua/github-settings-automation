@@ -40,7 +40,7 @@
 # Why this is canonical and not per-repo:
 #   - Eliminates the failure mode where QYL was missing nuget-publish.yml
 #     entirely (PRD assumed it existed; tag-push was a silent no-op).
-#   - Future bumps to action SHAs / NuGet protocol / GitHub Packages auth
+#   - Future bumps to action majors / NuGet protocol / GitHub Packages auth
 #     land in ONE place and propagate to every publishable repo on the
 #     next sync sweep.
 
@@ -65,12 +65,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
           cache: true
@@ -88,8 +88,8 @@ jobs:
       - name: Discover solution
         id: sln
         run: |
-          slnx="$(ls *.slnx 2>/dev/null | head -1 || true)"
-          [ -z "$slnx" ] && slnx="$(ls *.sln 2>/dev/null | head -1 || true)"
+          slnx="$(find . -maxdepth 1 -type f -name '*.slnx' -print -quit | sed 's#^\./##')"
+          [ -z "$slnx" ] && slnx="$(find . -maxdepth 1 -type f -name '*.sln' -print -quit | sed 's#^\./##')"
           [ -z "$slnx" ] && { echo "::error::no .slnx or .sln at repo root"; exit 1; }
           echo "Solution: $slnx"
           echo "slnx=$slnx" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,7 @@ jobs:
 
       - name: NuGet login (OIDC → temp API key)
         id: nuget_login
-        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        uses: NuGet/login@v1
         with:
           user: ${{ secrets.NUGET_USER }}
 

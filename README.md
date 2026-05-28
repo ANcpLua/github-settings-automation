@@ -1,220 +1,188 @@
 # github-settings-automation
 
-Private control plane for reproducible repo and org settings across
-`ANcpLua/*` and `O-ANcppLua/*`.
+Private control plane for reproducible repository and organization settings
+across `ANcpLua/*` and `O-ANcppLua/*`.
 
 ## Scope
 
-In scope: idempotent settings enforcement, profile-repo bootstrap,
-reusable workflow templates for downstream repos.
+In scope:
 
-Out of scope: application code, business logic, one-off migrations,
-repo transfers, secret rotation.
+- idempotent repository settings enforcement
+- profile-repository bootstrap
+- reusable workflow templates for downstream repositories
+- Codex-first review and repair guidance
+
+Out of scope:
+
+- application code
+- business logic
+- one-off migrations
+- repository transfers
+- secret rotation
+
+## Retired services
+
+The paid external reviewer surfaces are retired. Do not add their configuration
+files, GitHub Actions, secrets, badges, templates, or invocation comments back
+to this repository or to generated fleet guidance.
+
+The replacement path is Codex-first:
+
+- Codex GitHub code review is configured in Codex settings, not by a workflow in
+  this repository.
+- `@codex review` requests a focused review on a pull request.
+- `@codex fix ...` starts a Codex cloud task with the pull request as context.
+- `AGENTS.md` and `code_review.md` carry durable review guidance for local and
+  cloud Codex runs.
+- The local operating model is a coordinator plus three roles: Implementer,
+  Reviewer, and Improver.
+
+References:
+
+- https://developers.openai.com/codex/integrations/github
+- https://developers.openai.com/codex/concepts/customization
 
 ## Workflows
 
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`, and runs `scripts/sync-coderabbit-config.sh` per repo to seed/flip `.coderabbit.yaml` (seed if missing; flip `request_changes_workflow: true → false` if present; ruleset-blocked repos get a PR with auto-merge enabled; stale bot reviews dismissed on every exit). Also syncs `auto-merge.yml` (replace-if-drifted) and seeds `triage-bot.yml` (skip-if-exists). Idempotent. `sweep_mode` dispatch input: `topic` (default — curated repos carrying the `ancplua-fleet` topic, currently 20), `recent` (created in last 8 days), `full` (every non-fork active repo, ~330). Scheduled cron uses `topic`. |
-| `pr-heal.yml` | every 15 min cron + dispatch | Fleet-wide PR auto-heal. Scans every active repo for stuck PRs (auto-merge enabled but `BEHIND` / `DIRTY` / `BLOCKED` / `UNSTABLE`) and walks the AI provider fallback chain — CodeRabbit autofix comment → Claude Code direct (`anthropics/claude-code-action@v1`) → Codex / Copilot (planned) — until one resolves. If all providers exhaust, posts a precise outcome comment on the PR rather than failing silently. Targets a single PR via the `target` input (format `owner/repo#N`) for ad-hoc dispatch. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`; syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds or updates managed Codex guidance (`AGENTS.md`, `code_review.md`); and syncs `auto-merge.yml`. `sweep_mode` dispatch input: `topic` (curated repos carrying the `ancplua-fleet` topic), `recent` (created in last 8 days), `full` (every non-fork active repo). Scheduled cron uses `topic`. |
+| `pr-heal.yml` | every 15 min cron + dispatch | Fleet-wide PR handoff. Scans active repos for stuck PRs (`BEHIND`, `DIRTY`, `BLOCKED`, `UNSTABLE`) that should merge and posts one copyable Codex cloud handoff prompt. Targets a single PR via the `target` input (`owner/repo#N`) for ad-hoc dispatch. |
+| `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
 ## Auto-merge posture
 
-No third-party auto-merge App, no per-repo `destructive-auto-merge.yml`. The fleet relies on:
+No third-party auto-merge App, no destructive merge workflow, and no retired
+paid reviewer gate. The fleet relies on:
 
-- **GitHub native auto-merge** — `allow_auto_merge: true` patched by `enforce-repo-settings.yml`.
-- **Renovate** opens dependency PRs with `platformAutomerge: true` (see [`ANcpLua/renovate-config`](https://github.com/ANcpLua/renovate-config) — the shared baseline most repos extend). Renovate flips GitHub's native auto-merge on the PR; GitHub merges when branch protection's required checks pass.
-- **CodeRabbit is advisory.** `templates/coderabbit.yaml` ships with `request_changes_workflow: false` so the bot comments without ever submitting a formal `CHANGES_REQUESTED` review. That is what eliminated the legacy `--admin`-bypass workflow surface; you cannot get blocked by a sticky review that never happens.
+- GitHub native auto-merge, enabled by `enforce-repo-settings.yml`.
+- Renovate `platformAutomerge: true` for dependency PRs that the shared preset
+  marks safe.
+- Branch protection required checks as the merge authority.
+- Codex review as advisory signal through GitHub code review or explicit
+  `@codex review`.
 
-The combo is intentionally **modular**: Renovate decides *which* PRs get auto-flipped, branch protection decides what "green" means, CodeRabbit advises in parallel. None of them is a single point of control — that is the whole reason the owned-App plan was dropped.
+Bot and agent PRs using trusted branch prefixes (`codex/`, `copilot/`) can be
+auto-flipped by `auto-merge.yml`. Owner-authored PRs flow
+through the central `pr-heal.yml` cooldown so Codex review and other advisory
+comments can land before merge-on-green is enabled.
 
-### Scenario A — does NOT merge (and shouldn't)
+### Scenario A: does not merge
 
-Renovate opens a `Microsoft.Extensions.AI` minor bump (`10.5.2 → 10.6.0`). `platformAutomerge: true` flips native auto-merge on. The new minor introduces a breaking API change; the **Backend (.NET)** required check fails. Native auto-merge waits indefinitely for a green required check — there is no `--admin` bypass. CodeRabbit posts comments noting the call-site change but does not block (because it cannot). PR sits open until a human fixes the call site or closes the bump. This is exactly what the legacy destructive tier used to admin-merge through, and exactly what we wanted to stop.
+Renovate opens a dependency minor bump and enables native auto-merge. The bump
+introduces a breaking API change, so a required check fails. Native auto-merge
+waits for green CI. Codex review may point at the failing area, but it is not a
+merge authority. The PR remains open until Codex cloud or a human fixes the
+branch.
 
-### Scenario B — does merge (the modular dynamic)
+### Scenario B: does merge
 
-Renovate opens a `peakoss/anti-slop` patch bump. `renovate-config` matches `updateTypes: ["patch"]` → `automerge: true`; `platformAutomerge: true` flips native auto-merge on. CI runs (anti-slop scans itself, all checks green) within ~2 min. Branch protection is satisfied. GitHub squash-merges, deletes the branch. Zero human input from open to merged. Same path works for any trusted opener (Renovate / Dependabot / owner / agents) — the difference between A and B is the CI signal, not the actor.
+Renovate opens a trusted patch bump. The shared Renovate preset enables native
+auto-merge. CI is green and branch protection is satisfied. GitHub squash-merges
+and deletes the branch with no extra reviewer service in the path.
 
-## PR self-healing — closing the "needs human" gap
+## PR self-healing
 
-Scenario A above is intentional only if the human stepping in is fast and cheap. For a solo-dev mission this is still a hole: a Renovate minor bump with one breaking call-site shouldn't sit open until someone notices. `pr-heal.yml` is the layer that closes the gap.
+`pr-heal.yml` closes the "ready but stuck" gap for a solo-maintainer fleet.
+Every 15 minutes, it scans active repositories for open, non-draft PRs that
+have auto-merge enabled or carry `auto-resolve`, and whose `mergeStateStatus` is
+`BEHIND`, `DIRTY`, `BLOCKED`, or `UNSTABLE`.
 
-Every 15 minutes (and on-demand via `workflow_dispatch`), the workflow scans every active repo under `ANcpLua/*` + `O-ANcppLua/*` for PRs that are open, not draft, have auto-merge enabled (or carry the `auto-resolve` label), and have a `mergeStateStatus` of `BEHIND`, `DIRTY`, `BLOCKED`, or `UNSTABLE`. For each match it walks an **AI provider fallback chain**:
+The current repair/reporting chain is intentionally flat:
 
-1. **CodeRabbit autofix** — `@coderabbitai autofix` comment. Free, uses CR's quota. Resolves bot-flagged review feedback; can't rebase.
-2. **Claude Code direct** — `anthropics/claude-code-action@v1` running against the PR's checkout. Diagnoses the block, rebases if needed, fixes failing tests, pushes back to the PR branch.
-3. *(planned)* **OpenAI Codex CLI** on `OPENAI_API_KEY` once a Claude 429 actually fires.
-4. *(planned)* **GitHub Copilot Workspace** agent as final tier.
+1. Codex cloud handoff prompt. The workflow posts one marked comment containing
+   a copyable `@codex ...` prompt. This keeps the Codex path visible without
+   claiming that workflow-authored comments are a supported Codex task API.
 
-If every tier exhausts, the workflow comments on the PR with the exact provider state so the human-touch event is informed, not a mystery. **A `pr-heal` outcome comment is the only legitimate signal that a human is required.**
-
-The single new secret required at the central repo is `CLAUDE_CODE_OAUTH_TOKEN` (run `claude setup-token`). Cross-repo branch pushes reuse `REPO_SETTINGS_PAT_USER` / `_ORG`, which already have `Pull requests: Read and write` from the migration story.
+There is no classic-PAT triage helper, no hardcoded App installation scope, and
+no third-party repair action in this lane. Cross-repo PR lookup and comments
+reuse `REPO_SETTINGS_PAT_USER` / `REPO_SETTINGS_PAT_ORG`.
 
 ## Templates
 
-`templates/` files are **not** executed from this repo. They are copied into target repos. Workflow YAMLs ship with explicit pinned SHAs (no floating tags — supply-chain hygiene); the CodeRabbit template ships as a complete config.
+`templates/` files are not executed from this repository. They are copied or
+seeded into target repositories by `enforce-repo-settings.yml`.
 
-| Template | Source | Adoption mode |
-|---|---|---|
-| `coderabbit.yaml` | this repo | auto-seeded by `enforce-repo-settings.yml` into target repos that don't already carry `.coderabbit.yaml`. Repos with bespoke configs (e.g. qyl) keep their own. |
-| `anti-slop.yml` | `peakoss/anti-slop@v0.3.0` (SHA `2ee02d20…`) | manual copy. `close-pr: false` for at least two weeks before enabling auto-close. |
-| `refix.yml` | `HappyOnigiri/Refix@v1.4.0` (SHA `e0731dae…`) | manual copy. Label-gated (`refix`); never schedule; never auto-merge. Requires classic PAT. |
+| Template | Adoption mode |
+|---|---|
+| `AGENTS.md` | Seeded when missing, updated only when the existing file carries the managed marker. Custom downstream files are skipped. |
+| `code_review.md` | Same managed-marker behavior as `AGENTS.md`; referenced by the managed `AGENTS.md`. |
+| `auto-merge.yml` | Replaced when an existing downstream copy drifts from the canonical template. Repos without the workflow are skipped. |
+| `nuget-publish.yml` | Synced only into repos listed under `nuget_publishers:` in `scripts/drift-policy.yaml`. |
+
+Active workflow templates use maintained major action tags instead of pinned
+third-party SHAs so version updates flow through the canonical template sync
+rather than fossilizing in each repo.
+
+The Renovate preset also avoids static package-version matrices. The Microsoft
+Agent Framework policy is one dynamic NuGet family rule: stable and RC versions
+are allowed, preview/alpha/beta/dev builds are excluded, and new
+`Microsoft.Agents.AI.*` packages match without editing a local allowlist.
+The old static `Version.props` custom-manager inventory is gone; dependency
+updates now rely on Renovate's native managers and broad package-family rules
+instead of hardcoding one XML property per package.
 
 ## Required secrets
 
-A single fine-grained PAT cannot span both a user and an org — fine-grained
-PATs are scoped to one resource owner. Two PATs are required.
+A single fine-grained PAT cannot span both a user and an org. Two PATs are
+required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on All repositories | personal-side steps in both workflows |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on All repositories + Organization: `Administration: Read and write` | org-side steps in both workflows |
-| `REFIX_CLASSIC_PAT` | n/a | classic PAT: `repo, workflow, read:org, read:discussion` | target repo only, if `refix.yml` is adopted |
-| `CLAUDE_CODE_OAUTH_TOKEN` | n/a | from `claude setup-token` | **central** (this repo) — consumed by `pr-heal.yml`. Also valid in target repos that adopt `refix.yml`. |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and PR repair |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories + Organization: `Administration: Read and write` | org-side enforcement and PR repair |
+| `NUGET_USER` | n/a | nuget.org username, not an API key | central NuGet publishing sync |
 
-The org PAT needs Organization-level `Administration: write` because creating
-a new repo under the org hits `POST /orgs/{org}/repos`, which is an
-organization-scoped endpoint.
+Both PATs need `Contents: Read and write` because the guidance and workflow
+sync steps write files through the repository contents API.
 
-Both PATs need `Contents: Read and write` because the `.coderabbit.yaml`
-seed step writes a new file via `PUT /repos/{owner}/{repo}/contents/...`,
-which `Administration` alone does not authorize.
+Both PATs need `Pull requests: Read and write` because `pr-heal.yml` checks PR
+state and may enable native auto-merge.
 
-Both PATs also need `Pull requests: Read and write` because the sync
-script falls back to opening a PR (via `gh pr create`) when a repo's
-ruleset blocks direct writes to the default branch, and because the
-post-sync trap calls
-`PUT /repos/.../pulls/N/reviews/M/dismissals` to unstick PRs with
-stale `CHANGES_REQUESTED` reviews from coderabbitai[bot]. Without it,
-both the `gh pr create` and the dismissal calls silently 403 — the
-workflow stays green via `::warning::` lines but does nothing.
+Both PATs need `Workflows: Read and write` because the workflow sync steps write
+files below `.github/workflows/*`, which GitHub gates behind an additional
+permission beyond `Contents: write`.
 
-Both PATs need `Workflows: Read and write` because the
-`coderabbit-autofix.yml` seed step writes a workflow file via
-`PUT /repos/{r}/contents/.github/workflows/coderabbit-autofix.yml`,
-and GitHub gates writes to `.github/workflows/*` behind an additional
-permission beyond `Contents: write`. `pr-heal.yml`'s heal job also
-pushes to PR branches that may include workflow file changes.
+Both PATs need `Issues: Read and write` because PR conversation comments use
+the GitHub issues comments API.
 
-Both PATs need `Issues: Read and write` because `pr-heal.yml`'s
-outcome-comment step posts to `/repos/{r}/issues/{n}/comments`
-(GitHub treats PR conversation comments as issue comments at the API
-level — yes, even on a pull request). Without this scope the outcome
-comment 403s.
-
-### Stop adding scopes one by one — the alternative
-
-Every new automation surface we add tends to surface another required
-fine-grained PAT scope (this is the **third** scope-escalation in 24 h:
-Contents → Pull requests → Workflows, with Issues now layered in). The
-two paths to end the iteration:
-
-1. **Add every scope above in one update.** That is what the table now
-   captures. Future automation we add is likely to need: Actions
-   (workflow run management), Code scanning alerts, Custom properties.
-   Add those proactively if you want to never hit this again.
-2. **Switch to a single GitHub App** installed on both `ANcpLua` and
-   `O-ANcppLua` with all the permissions above set at install time.
-   App tokens auto-rotate and the permission set is declared once in
-   the App manifest. This is the canonical "no more scope dance"
-   solution and aligns with [[qyl-self-healing-vision]] — no recurring
-   human-touch events for token / scope maintenance.
-
-Three canonical mis-scope examples from this repo's run history:
-
-- Run `25735412052` — PATs had `Administration` only. Every seed PUT
-  hit `HTTP 403 Resource not accessible by personal access token`;
-  no `.coderabbit.yaml` files were written.
-- Run `25752657861` — PATs had `Administration` + `Contents` but not
-  `Pull requests`. The sync step's ruleset-fallback path failed at
-  `gh pr create` for `ANcpLua/ANcpLua.NET.Sdk` and the dismissal trap
-  logged zero `dismissed` lines, so PRs #143 and #145 stayed BLOCKED
-  by stale CodeRabbit `CHANGES_REQUESTED` reviews.
-- Run `25765252964` — PATs had `Administration` + `Contents` + `Pull
-  requests` but not `Workflows`. Every `coderabbit-autofix.yml` seed
-  hit `HTTP 403` because GitHub gates writes to `.github/workflows/*`
-  behind a separate workflow-files permission. 340 attempted seeds,
-  0 actual writes.
-
-Audit the run logs (not the green tick) until you are sure both PATs
-carry every scope above.
-
-## Manual one-offs (do not automate)
-
-- `ANcpLua/AnimalChat` → `O-ANcppLua/AnimalChat`:
-  `gh api -X POST repos/ANcpLua/AnimalChat/transfer -f new_owner=O-ANcppLua`
-- `O-ANcppLua/.github-private` currently holds Copilot agent content;
-  repurposing as a member-only onboarding README would collide.
-- Framework-suite migration (`ANcpLua.NET.Sdk`, `.Analyzers`,
-  `.Roslyn.Utilities`, `.Agents`,
-  `.OpenTelemetry.SemanticConventions.Analyzers`, `ErrorOrX`,
-  `renovate-config`, `ancplua-docs`, `dotcov`) is a separate
-  coordinated move; sibling `O-ANcppLua/ANcpLua.OtelConventions.Api`
-  already lives in the org.
-
+The org PAT needs Organization-level `Administration: write` because creating a
+new repo under the org uses an organization-scoped endpoint.
 
 ## Config drift detector
 
-`scripts/drift_check.py` audits a watchlist of shared configuration files across all listed repositories and reports **semantic** drift — not byte-level. Two files with different whitespace, different JSON key order, or different YAML flow style collapse to the same equivalence class.
+`scripts/drift_check.py` audits a watchlist of shared configuration files across
+listed repositories and reports semantic drift, not byte-level drift. Whitespace,
+JSON key order, and YAML flow style do not create false drift by themselves.
 
-## What "semantic" means per file type
-
-| File type | Normaliser | Ignores |
-|---|---|---|
-| `*.json`, `renovate.json`, `package.json`, `.markdownlint.json` | `json` | Whitespace, key order, trailing newlines |
-| `*.yaml`, `*.yml`, `.coderabbit.yaml`, `dependabot.yml` | `yaml` | Whitespace, key order, flow vs block style |
-| `*.xml`, `*.props`, `*.targets`, `nuget.config`, `Directory.Build.props` | `xml` | Insignificant whitespace, attribute order |
-| `.editorconfig`, `.gitmodules`, `.npmrc`, `.globalconfig` | `ini` | Comments, section ordering, key ordering |
-| `.gitignore`, `.dockerignore`, `.gitattributes`, `.markdownlintignore` | `lines` | Comments, blank lines, duplicate lines, ordering |
-| `LICENSE`, `build.sh`, `build.cmd` | `raw` | Trailing whitespace |
-
-Override the auto-detected normaliser per entry in `scripts/drift-policy.yaml` with `normalizer: <name>`.
-
-## Running locally
+### Running locally
 
 ```bash
-cd <this repo>
 pip install pyyaml
 python scripts/drift_check.py \
-    --policy scripts/drift-policy.yaml \
-    --output drift-report.md \
-    --manifest drift-manifest.json
+  --policy scripts/drift-policy.yaml \
+  --output drift-report.md \
+  --manifest drift-manifest.json
 ```
 
-Exit code `0` if all paths have one semantic cluster, `1` if any drift found, `2` on configuration or auth error.
+Exit code `0` means all watched paths have one semantic cluster, `1` means
+drift was found, and `2` means configuration or authentication failed.
 
-Reads GitHub via the `gh` CLI; needs `gh auth status` to be authenticated.
+The detector reads GitHub through the `gh` CLI, so `gh auth status` must pass.
 
-## CI
-
-`.github/workflows/drift-check.yml` runs the detector every Monday 06:00 UTC. On drift, it opens (or updates) an issue labelled `config-drift` with the report inline. Artefacts (`drift-report.md`, `drift-manifest.json`) are retained for 90 days.
-
-To trigger manually: Actions → Config drift check → Run workflow.
-
-## Adding a repo or a file path
+### Adding a repo or watched path
 
 Edit `scripts/drift-policy.yaml`:
 
 ```yaml
 repos:
-  - ANcpLua/<new-repo>     # add here
+  - ANcpLua/<new-repo>
 
 watch:
-  - path: <new-file>        # add here
+  - path: <new-file>
     # optional: normalizer: json
 ```
 
-The detector auto-picks the right normaliser from the file name; only specify `normalizer:` if you want to override.
-
-## Interpreting the report
-
-The report groups each watched path into **semantic clusters**. The largest cluster is marked `**canonical** (majority)`; smaller clusters are `drift #N`.
-
-- **One cluster** → clean, all repos semantically equivalent for this file.
-- **Two or more clusters** → drift. The smaller ones likely need to be aligned with the canonical (or the variation is legitimate and should be allowlisted — see below).
-
-### Legitimate variation
-
-Some drift is intentional (e.g. anti-self-bump rules in `renovate.json` referencing each repo's own package name). Currently you read the report and ignore those rows; future revision can add an allowlist mechanism if false-positives become a maintenance burden.
+The detector chooses a normalizer from the file name unless `normalizer:` is
+specified.

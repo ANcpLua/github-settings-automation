@@ -4,7 +4,7 @@
 # `repos:` — repos under drift surveillance.
 # `watch:` — file paths the drift check inspects per repo.
 # `nuget_publishers:` — repos that should receive the canonical
-#                       nuget-publish.yml + the NUGET_API_KEY secret on
+#                       nuget-publish.yml + the NUGET_USER secret on
 #                       every sweep of enforce-repo-settings.yml.
 #
 # Add repos to the `repos:` list and file paths to the `watch:` list.
@@ -22,7 +22,7 @@
 #   raw    — bytes as UTF-8 text, .strip()
 
 # Repos opted-in to canonical NuGet publishing. Each repo on this list
-# receives templates/nuget-publish.yml + the NUGET_API_KEY secret on
+# receives templates/nuget-publish.yml + the NUGET_USER secret on
 # every sweep of enforce-repo-settings.yml. Exclusions:
 #   - Apps (TourPlanner, Paperless, etc.) — nothing to publish.
 #   - ANcpLua/ANcpLua.Analyzers — keeps its bespoke workflow (uses
@@ -53,7 +53,6 @@ repos:
   - ANcpLua/nhmw-digital-collection
 
   # Docs and meta
-  - ANcpLua/ancplua-claude-plugins
   - ANcpLua/ancplua-docs
 
   # qyl — to enable later
@@ -72,9 +71,9 @@ watch:
   - path: .prettierrc
 
   # Reviewer/automation configs
-  - path: .coderabbit.yaml
   - path: .codecov.yml
   - path: codecov.yml
+  - path: code_review.md
 
   # Repo hygiene
   - path: .gitattributes
@@ -98,9 +97,6 @@ watch:
 
   # Shared workflows
   - path: .github/workflows/auto-merge.yml
-  - path: .github/workflows/coderabbit-autofix.yml
-  - path: .github/workflows/claude-code-review.yml
-  - path: .github/workflows/coderabbit.yml
   - path: .github/workflows/ci.yml
 
   # Build host
@@ -111,5 +107,4 @@ watch:
   # License / agent docs (compared raw — surfaces accidental Mintlify-style
   # default attribution leftovers)
   - path: LICENSE
-  - path: CLAUDE.md
   - path: AGENTS.md

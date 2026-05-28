@@ -31,7 +31,7 @@ jobs:
           fi
           gh api /user --jq .login
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v6
 
       - name: Resolve target user repos
         id: targets
@@ -84,13 +84,11 @@ jobs:
       # Force canonical branch-protection overrides from
       # templates/branch-protection.json onto every fleet repo's default
       # branch. Currently the only forced key is
-      # `required_conversation_resolution: false`, which prevents
-      # bot-uninstall lockouts (PR #174 on ANcpLua/ANcpLua.Analyzers was
-      # blocked for hours by 40 orphaned CodeRabbit review threads after
-      # CR was uninstalled — the canonical template removes that brittle
-      # gate fleet-wide). Repos with no branch protection at all are
-      # skipped — the sync HEALS existing protection but never
-      # AUTO-ENABLES protection on a previously unprotected branch.
+      # `required_conversation_resolution: false`, which prevents lockouts
+      # from orphaned bot review threads after a reviewer integration is
+      # removed. Repos with no branch protection at all are skipped — the
+      # sync HEALS existing protection but never AUTO-ENABLES protection on
+      # a previously unprotected branch.
       - name: Sync branch protection (force canonical keys, preserve per-repo)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
@@ -136,51 +134,20 @@ jobs:
             done < nuget-targets.txt
           fi
 
-      # Single robust step covering all four cases: file-missing, file-present-stale,
-      # ruleset-blocks-direct-write (PR fallback), already-advisory (no-op).
-      # See scripts/sync-coderabbit-config.sh for the per-repo algorithm.
-      - name: Sync .coderabbit.yaml (seed or flip request_changes_workflow)
+      - name: Sync Codex guidance (seed or update managed files)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
         run: |
           set -euo pipefail
           while read -r repo; do
             [ -z "$repo" ] && continue
-            scripts/sync-coderabbit-config.sh "$repo" templates/coderabbit.yaml \
-              || echo "::warning::sync-coderabbit-config.sh exited non-zero for $repo"
+            scripts/sync-codex-guidance.sh "$repo" templates/AGENTS.md templates/code_review.md \
+              || echo "::warning::sync-codex-guidance.sh exited non-zero for $repo"
           done < targets.txt
 
-      # Seed coderabbit-autofix.yml into every repo that has a .coderabbit.yaml
-      # (i.e. repos where CR autofix would actually do something). Skip-if-exists
-      # so per-repo customizations stay. Ruleset-protected repos warn and skip;
-      # they can adopt manually or via a future PR-fallback.
-      - name: Sync coderabbit-autofix.yml (seed if .coderabbit.yaml exists and workflow missing)
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
-        run: |
-          set -uo pipefail
-          [ -f templates/coderabbit-autofix.yml ] || { echo "templates/coderabbit-autofix.yml missing"; exit 1; }
-          CONTENT_B64="$(base64 -w0 templates/coderabbit-autofix.yml)"
-          while read -r repo; do
-            [ -z "$repo" ] && continue
-            # Only seed where CodeRabbit is actually configured
-            if ! gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
-              continue
-            fi
-            if gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --silent 2>/dev/null; then
-              echo "Skip $repo — already has coderabbit-autofix.yml"
-              continue
-            fi
-            echo "Seeding $repo with coderabbit-autofix.yml"
-            gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --method PUT --silent \
-              -f "message=chore: seed coderabbit-autofix.yml from github-settings-automation" \
-              -f "content=$CONTENT_B64" \
-              || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
-          done < targets.txt
-
-      # Sync auto-merge.yml. Unlike the autofix above (skip-if-exists),
+      # Sync auto-merge.yml. Unlike the guidance sync above (skip-if-custom),
       # this REPLACES — the bug we fix here (the now-removed owner-clause
-      # that caused PR#170 to merge before CodeRabbit could review) lives
+      # that caused PR#170 to merge before advisory review could land) lives
       # in the existing per-repo files and must be overwritten. Skip repos
       # that don't already have an auto-merge.yml: we don't push the
       # workflow into repos that opted out.
@@ -216,84 +183,6 @@ jobs:
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
           done < targets.txt
 
-      # Seed triage-bot.yml. Skip-if-exists (per-repo PAT/App secret
-      # makes this opt-in). The pattern: bot classifies unresolved review
-      # threads, auto-resolves the non-blocking ones, leaves needs-human
-      # threads to block native auto-merge via required_conversation_resolution.
-      # Validated end-to-end in ANcpLua/triage-bot-playground (PR #1 + #2,
-      # 2026-05-18).
-      - name: Seed triage-bot.yml (skip if exists; opt-in via TRIAGE_PAT secret)
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
-        run: |
-          set -uo pipefail
-          [ -f templates/triage-bot.yml ] || { echo "templates/triage-bot.yml missing"; exit 1; }
-          CONTENT_B64="$(base64 -w0 templates/triage-bot.yml)"
-          while read -r repo; do
-            [ -z "$repo" ] && continue
-            if gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --silent 2>/dev/null; then
-              echo "Skip $repo — already has triage-bot.yml"
-              continue
-            fi
-            echo "Seeding $repo with triage-bot.yml"
-            gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --method PUT --silent \
-              -f "message=chore: seed triage-bot.yml from github-settings-automation (requires TRIAGE_PAT secret + required_conversation_resolution on default branch)" \
-              -f "content=$CONTENT_B64" \
-              || echo "::warning::Failed to seed triage-bot.yml on $repo (ruleset or PAT scope)"
-          done < targets.txt
-
-      # Ensure every fleet repo that carries a Renovate config is in the
-      # Renovate App's installation scope. Workflow files can be file-synced
-      # (above), but App installation scope cannot — it's an API grant, not
-      # a file. Without this step new repos carry a Renovate config yet
-      # remain invisible to Renovate (silent gap on
-      # ANcpLua.OpenTelemetry.SemanticConventions.Analyzers tracked
-      # 2026-05-25 — repo carried a valid renovate.json for weeks but
-      # produced no PRs and no Dependency Dashboard issue).
-      #
-      # Renovate accepts its config at four common paths; we check all
-      # before skipping a repo. The .renovaterc* dotfiles and
-      # package.json#renovate key are intentionally out of scope — both
-      # are rare in this fleet and the latter would need content parsing,
-      # not just path existence.
-      #
-      # Installation id 79212889 is @ANcpLua's personal Renovate install
-      # (https://github.com/settings/installations/79212889). The PUT
-      # endpoint is idempotent — 204 whether newly added or already
-      # present — so we don't pre-check membership. Listing installations
-      # requires an App user-to-server token the PAT path can't issue,
-      # hence the hardcoded id; revisit if Renovate is ever reinstalled.
-      - name: Ensure fleet repos with a Renovate config are in Renovate App scope
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
-          RENOVATE_INSTALLATION_ID: "79212889"
-        run: |
-          set -uo pipefail
-          while read -r repo; do
-            [ -z "$repo" ] && continue
-            has_renovate_config=false
-            for cfg in renovate.json renovate.json5 .github/renovate.json .github/renovate.json5; do
-              if gh api "repos/$repo/contents/$cfg" --silent 2>/dev/null; then
-                has_renovate_config=true
-                break
-              fi
-            done
-            if [ "$has_renovate_config" = false ]; then
-              continue
-            fi
-            repo_id="$(gh api "repos/$repo" --jq .id 2>/dev/null || true)"
-            if [ -z "$repo_id" ] || [ "$repo_id" = "null" ]; then
-              echo "::warning::Cannot resolve numeric id for $repo"
-              continue
-            fi
-            if gh api --method PUT --silent \
-                "/user/installations/$RENOVATE_INSTALLATION_ID/repositories/$repo_id" 2>/dev/null; then
-              echo "Ensured Renovate scope for $repo (id $repo_id)"
-            else
-              echo "::warning::Failed to add $repo (id $repo_id) to Renovate scope"
-            fi
-          done < targets.txt
-
   enforce-org:
     runs-on: ubuntu-latest
     steps:
@@ -307,7 +196,7 @@ jobs:
           fi
           gh api /orgs/O-ANcppLua --jq .login
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v6
 
       - name: Resolve target org repos
         id: targets
@@ -397,7 +286,7 @@ jobs:
             done < nuget-targets.txt
           fi
 
-      - name: Sync .coderabbit.yaml (seed or flip request_changes_workflow)
+      - name: Sync Codex guidance (seed or update managed files)
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
         run: |
@@ -407,34 +296,8 @@ jobs:
             case "$repo" in
               O-ANcppLua/.github|O-ANcppLua/.github-private) echo "Skip $repo — meta repo"; continue ;;
             esac
-            scripts/sync-coderabbit-config.sh "$repo" templates/coderabbit.yaml \
-              || echo "::warning::sync-coderabbit-config.sh exited non-zero for $repo"
-          done < targets.txt
-
-      - name: Sync coderabbit-autofix.yml (seed if .coderabbit.yaml exists and workflow missing)
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-        run: |
-          set -uo pipefail
-          [ -f templates/coderabbit-autofix.yml ] || { echo "templates/coderabbit-autofix.yml missing"; exit 1; }
-          CONTENT_B64="$(base64 -w0 templates/coderabbit-autofix.yml)"
-          while read -r repo; do
-            [ -z "$repo" ] && continue
-            case "$repo" in
-              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
-            esac
-            if ! gh api "repos/$repo/contents/.coderabbit.yaml" --silent 2>/dev/null; then
-              continue
-            fi
-            if gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --silent 2>/dev/null; then
-              echo "Skip $repo — already has coderabbit-autofix.yml"
-              continue
-            fi
-            echo "Seeding $repo with coderabbit-autofix.yml"
-            gh api "repos/$repo/contents/.github/workflows/coderabbit-autofix.yml" --method PUT --silent \
-              -f "message=chore: seed coderabbit-autofix.yml from github-settings-automation" \
-              -f "content=$CONTENT_B64" \
-              || echo "::warning::Failed to seed coderabbit-autofix.yml on $repo (ruleset or missing Workflows write scope on PAT)"
+            scripts/sync-codex-guidance.sh "$repo" templates/AGENTS.md templates/code_review.md \
+              || echo "::warning::sync-codex-guidance.sh exited non-zero for $repo"
           done < targets.txt
 
       - name: Sync auto-merge.yml (replace if drifted from template)
@@ -470,27 +333,4 @@ jobs:
               -f "content=$CONTENT_B64" \
               -f "sha=$current_sha" \
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
-          done < targets.txt
-
-      - name: Seed triage-bot.yml (skip if exists; opt-in via TRIAGE_PAT secret)
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-        run: |
-          set -uo pipefail
-          [ -f templates/triage-bot.yml ] || { echo "templates/triage-bot.yml missing"; exit 1; }
-          CONTENT_B64="$(base64 -w0 templates/triage-bot.yml)"
-          while read -r repo; do
-            [ -z "$repo" ] && continue
-            case "$repo" in
-              O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
-            esac
-            if gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --silent 2>/dev/null; then
-              echo "Skip $repo — already has triage-bot.yml"
-              continue
-            fi
-            echo "Seeding $repo with triage-bot.yml"
-            gh api "repos/$repo/contents/.github/workflows/triage-bot.yml" --method PUT --silent \
-              -f "message=chore: seed triage-bot.yml from github-settings-automation (requires TRIAGE_PAT secret + required_conversation_resolution on default branch)" \
-              -f "content=$CONTENT_B64" \
-              || echo "::warning::Failed to seed triage-bot.yml on $repo (ruleset or PAT scope)"
           done < targets.txt
