@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       sweep_mode:
-        description: "topic = curated fleet (ancplua-fleet topic, default); recent = last 8 days; full = every non-fork active repo"
+        description: "topic = curated fleet (qyl or ancplua-fleet topic, default); recent = last 8 days; full = every non-fork active repo"
         type: choice
         options:
           - topic
@@ -42,9 +42,9 @@ jobs:
           set -euo pipefail
           case "$SWEEP_MODE" in
             topic)
-              echo "Mode: topic (ancplua-fleet curated repos)"
+              echo "Mode: topic (qyl or ancplua-fleet curated repos)"
               gh api --paginate "/user/repos?sort=created&direction=desc&per_page=100" \
-                --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "ancplua-fleet")) | .full_name' \
+                --jq '.[] | select(.owner.login == "ANcpLua") | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "qyl" or . == "ancplua-fleet")) | .full_name' \
                 > targets.txt
               ;;
             recent)
@@ -67,6 +67,17 @@ jobs:
           esac
           echo "Targets:"
           cat targets.txt
+
+      - name: Remove retired review automation
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            scripts/remove-retired-review-automation.sh "$repo" \
+              || echo "::warning::remove-retired-review-automation.sh exited non-zero for $repo"
+          done < targets.txt
 
       - name: Patch repo settings (delete_branch_on_merge + allow_auto_merge)
         env:
@@ -207,9 +218,9 @@ jobs:
           set -euo pipefail
           case "$SWEEP_MODE" in
             topic)
-              echo "Mode: topic (ancplua-fleet curated repos)"
+              echo "Mode: topic (qyl or ancplua-fleet curated repos)"
               gh api --paginate "/orgs/O-ANcppLua/repos?sort=created&direction=desc&per_page=100" \
-                --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "ancplua-fleet")) | .full_name' \
+                --jq '.[] | select(.archived == false) | select(.disabled == false) | select(.fork == false) | select((.topics // []) | any(. == "qyl" or . == "ancplua-fleet")) | .full_name' \
                 > targets.txt
               ;;
             recent)
@@ -232,6 +243,20 @@ jobs:
           esac
           echo "Targets:"
           cat targets.txt
+
+      - name: Remove retired review automation
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+        run: |
+          set -euo pipefail
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            case "$repo" in
+              O-ANcppLua/.github|O-ANcppLua/.github-private) echo "Skip $repo — meta repo"; continue ;;
+            esac
+            scripts/remove-retired-review-automation.sh "$repo" \
+              || echo "::warning::remove-retired-review-automation.sh exited non-zero for $repo"
+          done < targets.txt
 
       - name: Patch repo settings (delete_branch_on_merge + allow_auto_merge)
         env:

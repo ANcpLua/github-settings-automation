@@ -30,3 +30,6 @@ edits to the same file.
 ## Review Guidelines
 
 Follow `code_review.md` for local reviews and Codex GitHub review guidance.
+For PR triage, use `@codex review` and `@codex fix ...` comments from a human
+or enabled automatic Codex review settings. Do not recreate retired review bots
+with GitHub Actions comments.

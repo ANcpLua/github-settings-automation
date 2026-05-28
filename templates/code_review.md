@@ -13,3 +13,15 @@ Review for blocking issues first. Treat the following as high priority:
 For Codex GitHub reviews, focus comments on serious issues and include exact
 file and line references. Cosmetic feedback is useful only when it prevents an
 operational mistake.
+
+## PR Triage
+
+Use Codex as the replacement triage path:
+
+- request review with `@codex review`
+- request a focused review with `@codex review for <risk area>`
+- request repair with `@codex fix <specific blocker>`
+
+Do not add bot comments, labels, or workflow logic that mentions retired
+reviewer services. If a workflow can only post a handoff prompt, say that
+plainly and avoid claiming it starts a Codex task automatically.
