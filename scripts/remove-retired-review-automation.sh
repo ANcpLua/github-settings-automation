@@ -1,19 +1,38 @@
 #!/usr/bin/env bash
 # Remove retired reviewer automation from one target repository.
 #
-# Direct default-branch deletes are attempted first. When repository rules block
-# direct writes, the script falls back to a branch + PR and enables native
-# auto-merge. Replacement guidance is handled separately by
-# scripts/sync-codex-guidance.sh.
+# Default-branch deletes can be attempted first, but the caller may force a
+# branch + PR for reviewable fleet sweeps. Replacement guidance is handled
+# separately by scripts/sync-codex-guidance.sh.
 
 set -euo pipefail
 
 repo="${1:?usage: remove-retired-review-automation.sh <owner/repo>}"
 branch_name="automation/remove-retired-review-automation"
 message="chore: remove retired review automation"
+write_mode="${RETIRED_REVIEW_CLEANUP_WRITE_MODE:-direct}"
+auto_merge="${RETIRED_REVIEW_CLEANUP_AUTO_MERGE:-}"
 
 command -v gh >/dev/null || { echo "::error::gh not installed"; exit 1; }
 command -v jq >/dev/null || { echo "::error::jq not installed"; exit 1; }
+
+case "$write_mode" in
+  direct|pull_request) ;;
+  *) echo "::error::RETIRED_REVIEW_CLEANUP_WRITE_MODE must be direct or pull_request"; exit 1 ;;
+esac
+
+if [ -z "$auto_merge" ]; then
+  if [ "$write_mode" = "pull_request" ]; then
+    auto_merge=false
+  else
+    auto_merge=true
+  fi
+fi
+
+case "$auto_merge" in
+  true|false) ;;
+  *) echo "::error::RETIRED_REVIEW_CLEANUP_AUTO_MERGE must be true or false"; exit 1 ;;
+esac
 
 tmp_paths="$(mktemp)"
 tmp_unique="$(mktemp)"
@@ -88,13 +107,19 @@ is_ruleset_error() {
   grep -qE 'Repository rule violations|must be made through a pull request|protected branch|required status check|405' <<<"$1"
 }
 
-fallback_paths=()
+pr_paths=()
 deleted_any=false
 
 while IFS= read -r path; do
   [ -z "$path" ] && continue
   sha="$(content_sha "$path" "$default_branch")"
   if [ -z "$sha" ]; then
+    continue
+  fi
+
+  if [ "$write_mode" = "pull_request" ]; then
+    log "$path: queueing review PR"
+    pr_paths+=("$path")
     continue
   fi
 
@@ -106,7 +131,7 @@ while IFS= read -r path; do
 
   if is_ruleset_error "$delete_err"; then
     log "$path: direct delete blocked by repository rules; queueing PR fallback"
-    fallback_paths+=("$path")
+    pr_paths+=("$path")
     continue
   fi
 
@@ -114,7 +139,7 @@ while IFS= read -r path; do
   exit 1
 done < "$tmp_unique"
 
-if [ "${#fallback_paths[@]}" -eq 0 ]; then
+if [ "${#pr_paths[@]}" -eq 0 ]; then
   if [ "$deleted_any" = false ]; then
     log "retired review automation no-op"
   fi
@@ -130,7 +155,7 @@ else
   log "branch $branch_name already exists; reusing"
 fi
 
-for path in "${fallback_paths[@]}"; do
+for path in "${pr_paths[@]}"; do
   sha="$(content_sha "$path" "$branch_name")"
   if [ -z "$sha" ]; then
     log "$path: already absent on $branch_name"
@@ -154,7 +179,7 @@ if [ -z "$existing_pr" ]; then
     --base "$default_branch" \
     --head "$branch_name" \
     --title "chore: remove retired review automation" \
-    --body "Automated by ANcpLua/github-settings-automation. Removes retired CodeRabbit/Codacy workflow and config files plus the old triage-bot workflow. Codex replacement guidance is synced separately through AGENTS.md and code_review.md." \
+    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired CodeRabbit/Codacy workflow and config files plus the old triage-bot workflow. Codex replacement guidance is synced separately through AGENTS.md and code_review.md." \
     2>/dev/null || true)"
   pr_num="$(grep -oE '[0-9]+$' <<<"$pr_url" || true)"
   if [ -z "$pr_num" ]; then
@@ -167,7 +192,9 @@ else
   log "PR #$pr_num already open; reusing"
 fi
 
-if gh pr merge "$pr_num" --repo "$repo" --auto --squash --delete-branch 2>/dev/null; then
+if [ "$auto_merge" = "false" ]; then
+  log "auto-merge disabled on PR #$pr_num"
+elif gh pr merge "$pr_num" --repo "$repo" --auto --squash --delete-branch 2>/dev/null; then
   log "auto-merge enabled on PR #$pr_num"
 else
   log "auto-merge already enabled or could not be enabled on PR #$pr_num"

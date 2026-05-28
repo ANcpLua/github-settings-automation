@@ -109,6 +109,13 @@ surface from each target repo before guidance sync runs:
 - any workflow file whose content still mentions CodeRabbit or Codacy
 - the old `triage-bot.yml` workflow
 
+The `enforce-repo-settings.yml` topic sweep runs this cleanup in
+`pull_request` mode by default and leaves auto-merge disabled. Repos tagged
+`qyl` or `ancplua-fleet` get a cleanup PR only when there is an actual diff to
+review. GitHub shows the PR author as the owner of the authenticated
+`REPO_SETTINGS_PAT_USER` / `REPO_SETTINGS_PAT_ORG` token, not
+`github-actions[bot]`.
+
 The replacement is Codex guidance, not another fake bot trigger. Codex review
 is enabled in Codex settings or requested with `@codex review`; repair is
 requested with `@codex fix ...` from the PR.

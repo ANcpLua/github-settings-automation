@@ -13,6 +13,13 @@ on:
           - recent
           - full
         default: topic
+      retired_review_cleanup_mode:
+        description: "pull_request opens review PRs for retired reviewer cleanup; direct deletes on default branches when allowed"
+        type: choice
+        options:
+          - pull_request
+          - direct
+        default: pull_request
 
 permissions:
   contents: read
@@ -71,6 +78,8 @@ jobs:
       - name: Remove retired review automation
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          RETIRED_REVIEW_CLEANUP_WRITE_MODE: ${{ inputs.retired_review_cleanup_mode || 'pull_request' }}
+          RETIRED_REVIEW_CLEANUP_AUTO_MERGE: "false"
         run: |
           set -euo pipefail
           while read -r repo; do
@@ -247,6 +256,8 @@ jobs:
       - name: Remove retired review automation
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+          RETIRED_REVIEW_CLEANUP_WRITE_MODE: ${{ inputs.retired_review_cleanup_mode || 'pull_request' }}
+          RETIRED_REVIEW_CLEANUP_AUTO_MERGE: "false"
         run: |
           set -euo pipefail
           while read -r repo; do
