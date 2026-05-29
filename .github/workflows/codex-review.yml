@@ -17,11 +17,21 @@
 #      (user, content), so re-running is a no-op.
 #
 # Usage discipline (don't burn Codex quota):
+#   - We only consider PRs whose HEAD COMMIT or CREATION time is within
+#     ACTIVE_WINDOW_SECONDS. A cron sweep over *every* open PR would resurrect
+#     long-dormant PRs (old #1s on stale repos). We deliberately do NOT key on
+#     updatedAt — posting a comment bumps updatedAt, which would make every PR
+#     we touch look "active" and create a re-trigger loop. Commit/creation
+#     times never move when a comment lands.
 #   - We trigger ONLY when there is no Codex review at the current head SHA
 #     AND we have not already requested one for that SHA (hidden marker
 #     comment). New commits change the head SHA, which re-arms the trigger.
 #   - A grace window lets Codex "Automatic reviews" (if enabled for the repo)
 #     land its own review first, so we never double-review a fresh push.
+#
+# Prerequisite the workflow CANNOT satisfy: a repo only gets reviewed if it
+# has a Codex cloud environment (https://chatgpt.com/codex/cloud/settings/
+# environments). Unconfigured repos just reply "create an environment".
 #
 # Tiering vs the other workflows:
 #   - auto-merge.yml (per-repo)  — merges; never comments to Codex.
@@ -68,6 +78,10 @@ jobs:
           # Grace seconds: give Codex Automatic reviews time to land its own
           # review on a fresh push before we post an explicit @codex review.
           GRACE_SECONDS=600
+          # Active window: only touch PRs updated within this many seconds.
+          # 86400 = 24h. Dormant PRs are never (re)triggered. Explicit
+          # workflow_dispatch of a single PR bypasses this window.
+          ACTIVE_WINDOW_SECONDS=86400
 
           # React 👍 to every Codex inline review comment on a PR. Idempotent:
           # GitHub dedups reactions per (user, content), so re-POST is a no-op.
@@ -86,16 +100,34 @@ jobs:
           # Ensure a Codex review is requested for the PR's current head.
           ensure_review() {
             local repo="$1" pr="$2"
-            local head reviewed requested committed age
+            local prinfo head created committed now age_commit age_created reviewed requested
 
-            head="$(gh pr view "$pr" --repo "$repo" --json headRefOid \
-              --jq '.headRefOid' 2>/dev/null || echo '')"
-            if [ -z "$head" ]; then
+            prinfo="$(gh pr view "$pr" --repo "$repo" --json headRefOid,createdAt \
+              --jq '.headRefOid + "|" + .createdAt' 2>/dev/null || echo '')"
+            head="${prinfo%%|*}"
+            created="${prinfo#*|}"
+            if [ -z "$head" ] || [ "$head" = "$prinfo" ]; then
               echo "::warning::$repo#$pr: could not resolve head SHA"
               return
             fi
 
-            # Already reviewed at this exact commit → nothing to request.
+            now="$(date -u +%s)"
+            committed="$(gh api "repos/$repo/commits/$head" \
+              --jq '.commit.committer.date' 2>/dev/null || echo '')"
+
+            # Dormancy gate (commit/creation time — immune to comment churn).
+            # Active if EITHER the head commit OR the PR creation is recent.
+            age_commit=999999999
+            [ -n "$committed" ] && age_commit=$(( now - $(date -u -d "$committed" +%s) ))
+            age_created=999999999
+            [ -n "$created" ] && age_created=$(( now - $(date -u -d "$created" +%s) ))
+            if [ "$age_commit" -gt "$ACTIVE_WINDOW_SECONDS" ] \
+               && [ "$age_created" -gt "$ACTIVE_WINDOW_SECONDS" ]; then
+              echo "$repo#$pr: dormant (commit ${age_commit}s / created ${age_created}s old) — skipping"
+              return
+            fi
+
+            # Already reviewed at this exact commit → just thumbs-up.
             reviewed="$(gh api "repos/$repo/pulls/$pr/reviews" \
               --jq "[.[] | select(.user.login == \"$CONNECTOR\") | select(.commit_id == \"$head\")] | length" \
               2>/dev/null || echo 0)"
@@ -116,14 +148,9 @@ jobs:
             fi
 
             # Grace: let Automatic reviews land first on a fresh push.
-            committed="$(gh api "repos/$repo/commits/$head" \
-              --jq '.commit.committer.date' 2>/dev/null || echo '')"
-            if [ -n "$committed" ]; then
-              age=$(( $(date -u +%s) - $(date -u -d "$committed" +%s) ))
-              if [ "$age" -lt "$GRACE_SECONDS" ]; then
-                echo "$repo#$pr: head $head is ${age}s old — grace window, waiting for auto-review"
-                return
-              fi
+            if [ "$age_commit" -lt "$GRACE_SECONDS" ]; then
+              echo "$repo#$pr: head $head is ${age_commit}s old — grace window, waiting for auto-review"
+              return
             fi
 
             # Post the documented trigger as ANcpLua, with a hidden per-SHA marker.
@@ -136,7 +163,8 @@ jobs:
             fi
           }
 
-          # Walk every open, non-draft PR in a repo.
+          # Walk open, non-draft PRs. Dormancy is filtered inside ensure_review
+          # by commit/creation time (NOT by updatedAt, which comment churn bumps).
           process_repo() {
             local repo="$1"
             gh pr list --repo "$repo" --state open --limit 100 \
