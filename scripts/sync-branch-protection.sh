@@ -61,11 +61,10 @@ fi
 put_body="$(echo "$get_response" | jq '{
   required_status_checks: (
     if .required_status_checks == null then null
-    else {
-      strict: .required_status_checks.strict,
-      contexts: (.required_status_checks.contexts // []),
-      checks: (.required_status_checks.checks // [])
-    }
+    # contexts (deprecated) and checks are a oneOf on PUT — sending BOTH is a
+    # 422 ("more than one subschema in oneOf matched"). The GET returns both
+    # (checks mirrors contexts), so emit only the modern checks field.
+    else { strict: .required_status_checks.strict, checks: (.required_status_checks.checks // []) }
     end
   ),
   enforce_admins: (.enforce_admins.enabled // false),
