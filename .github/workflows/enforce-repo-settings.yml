@@ -181,7 +181,13 @@ jobs:
           TEMPLATE_CONTENT="$(cat templates/auto-merge.yml)"
           while read -r repo; do
             [ -z "$repo" ] && continue
-            current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null || true)"
+            # gh dumps the raw error JSON to stdout on 404 (it does not apply --jq
+            # to error bodies), so a missing file yields a {"message":"Not Found"}
+            # blob, not "". Gate on the exit code: non-zero (404) -> treat as absent
+            # and skip, instead of PUTting a bogus sha and emitting a false warning.
+            if ! current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null)"; then
+              current_sha=""
+            fi
             if [ -z "$current_sha" ] || [ "$current_sha" = "null" ]; then
               echo "Skip $repo — no auto-merge.yml (not seeding into repos that opted out)"
               continue
@@ -349,7 +355,13 @@ jobs:
             case "$repo" in
               O-ANcppLua/.github|O-ANcppLua/.github-private) continue ;;
             esac
-            current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null || true)"
+            # gh dumps the raw error JSON to stdout on 404 (it does not apply --jq
+            # to error bodies), so a missing file yields a {"message":"Not Found"}
+            # blob, not "". Gate on the exit code: non-zero (404) -> treat as absent
+            # and skip, instead of PUTting a bogus sha and emitting a false warning.
+            if ! current_sha="$(gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --jq '.sha' 2>/dev/null)"; then
+              current_sha=""
+            fi
             if [ -z "$current_sha" ] || [ "$current_sha" = "null" ]; then
               echo "Skip $repo — no auto-merge.yml"
               continue
