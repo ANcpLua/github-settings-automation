@@ -47,7 +47,7 @@ References:
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`; removes retired CodeRabbit/Codacy workflow/config files and the old triage bot; syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds or updates managed Codex guidance (`AGENTS.md`, `code_review.md`); and syncs `auto-merge.yml`. `sweep_mode` dispatch input: `topic`, `recent` (created in last 8 days), `full` (every non-fork active repo). Scheduled cron uses `topic`. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy workflow/config files and the old triage bot (CodeRabbit files are kept — Pro Plus is active again since 2026-06-11); syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds or updates managed Codex guidance (`AGENTS.md`, `code_review.md`); and syncs `auto-merge.yml`. `sweep_mode` dispatch input: `topic`, `recent` (created in last 8 days), `full` (every non-fork active repo). Scheduled cron uses `topic`. |
 | `pr-heal.yml` | every 15 min cron + dispatch | Fleet-wide PR handoff. Scans active repos for stuck PRs (`BEHIND`, `DIRTY`, `BLOCKED`, `UNSTABLE`) that should merge and posts one copyable Codex cloud handoff prompt. Targets a single PR via the `target` input (`owner/repo#N`) for ad-hoc dispatch. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
@@ -104,10 +104,14 @@ reuse `REPO_SETTINGS_PAT_USER` / `REPO_SETTINGS_PAT_ORG`.
 `scripts/remove-retired-review-automation.sh` removes the retired reviewer
 surface from each target repo before guidance sync runs:
 
-- known CodeRabbit/Codacy config files
-- known CodeRabbit/Codacy workflow files under `.github/workflows/`
-- any workflow file whose content still mentions CodeRabbit or Codacy
+- known Codacy config files
+- known Codacy workflow files under `.github/workflows/`
+- any workflow file whose content still mentions Codacy
 - the old `triage-bot.yml` workflow
+
+CodeRabbit files are deliberately exempt: the Pro Plus subscription
+re-activated on 2026-06-11 and CodeRabbit is part of the active reviewer set
+again. Do not re-add coderabbit paths to the cleanup kill list.
 
 The `enforce-repo-settings.yml` topic sweep runs this cleanup in
 `pull_request` mode by default and leaves auto-merge disabled. Repos tagged

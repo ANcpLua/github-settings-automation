@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Remove retired reviewer automation from one target repository.
 #
+# Retired = Codacy + the old triage-bot. CodeRabbit is NOT retired: the
+# Pro Plus subscription re-activated 2026-06-11 and its configs must
+# survive fleet sweeps — do not re-add coderabbit paths to the kill list.
+#
 # Default-branch deletes can be attempted first, but the caller may force a
 # branch + PR for reviewable fleet sweeps. Replacement guidance is handled
 # separately by scripts/sync-codex-guidance.sh.
@@ -48,15 +52,8 @@ if [ -z "$default_branch" ] || [ "$default_branch" = "null" ]; then
 fi
 
 cat > "$tmp_paths" <<'PATHS'
-.coderabbit.yaml
-.coderabbit.yml
-coderabbit.yaml
-coderabbit.yml
 .codacy.yaml
 .codacy.yml
-.github/workflows/coderabbit.yml
-.github/workflows/coderabbit.yaml
-.github/workflows/coderabbit-autofix.yml
 .github/workflows/codacy.yml
 .github/workflows/codacy.yaml
 .github/workflows/codacy-analysis.yml
@@ -73,7 +70,7 @@ while IFS= read -r workflow_path; do
   [ -z "$workflow_path" ] && continue
   content_b64="$(gh api "repos/$repo/contents/$workflow_path?ref=$default_branch" --jq '.content // empty' 2>/dev/null || true)"
   content="$(base64 -d <<<"$content_b64" 2>/dev/null || true)"
-  if grep -Eiq '(coderabbit|coderabbitai|codacy|codacy-analysis|codacy-coverage)' <<<"$content"; then
+  if grep -Eiq '(codacy|codacy-analysis|codacy-coverage)' <<<"$content"; then
     printf '%s\n' "$workflow_path" >> "$tmp_paths"
   fi
 done <<<"$workflow_paths"
@@ -179,7 +176,7 @@ if [ -z "$existing_pr" ]; then
     --base "$default_branch" \
     --head "$branch_name" \
     --title "chore: remove retired review automation" \
-    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired CodeRabbit/Codacy workflow and config files plus the old triage-bot workflow. Codex replacement guidance is synced separately through AGENTS.md and code_review.md." \
+    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired Codacy workflow and config files plus the old triage-bot workflow. CodeRabbit files are deliberately NOT touched — the Pro Plus subscription is active again (2026-06-11). Codex replacement guidance is synced separately through AGENTS.md and code_review.md." \
     2>/dev/null || true)"
   pr_num="$(grep -oE '[0-9]+$' <<<"$pr_url" || true)"
   if [ -z "$pr_num" ]; then
