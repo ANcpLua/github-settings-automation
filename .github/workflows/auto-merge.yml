@@ -5,8 +5,8 @@
 # weekly enforce-repo-settings sweep. Do not hand-edit per-repo.
 #
 # This file is per-repo and event-driven. It enables native GitHub auto-merge
-# only for trusted automation branches or CodeRabbit approval. There is no
-# central PR-heal cron in the merge path.
+# only for trusted automation branches. There is no central PR-heal cron in
+# the merge path, and no reviewer-bot approval triggers a merge.
 #
 # Renovate bot PRs do not need this workflow: Renovate enables native
 # auto-merge itself via `platformAutomerge: true` in the shared preset
@@ -24,8 +24,7 @@
 # natively without it).
 #
 # Branch-prefix policy:
-#   - coderabbit/ — CodeRabbit-generated stacked PRs and repairs
-#   - copilot/    — GitHub Copilot agents when enabled
+#   - copilot/ — GitHub Copilot agents when enabled
 
 name: Auto-merge
 
@@ -43,14 +42,8 @@ jobs:
   enable-auto-merge:
     runs-on: ubuntu-latest
     if: |
-      github.event.pull_request.draft == false && (
-        contains(fromJSON('["coderabbitai[bot]", "coderabbitai"]'), github.event.pull_request.user.login) ||
-        startsWith(github.event.pull_request.head.ref, 'coderabbit/') ||
-        startsWith(github.event.pull_request.head.ref, 'copilot/') ||
-        (github.event_name == 'pull_request_review'
-         && github.event.review.state == 'approved'
-         && contains(fromJSON('["coderabbitai[bot]", "coderabbitai"]'), github.event.review.user.login))
-      )
+      github.event.pull_request.draft == false &&
+      startsWith(github.event.pull_request.head.ref, 'copilot/')
     steps:
       - name: Enable native auto-merge (squash)
         env:

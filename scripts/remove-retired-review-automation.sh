@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Remove retired reviewer automation from one target repository.
 #
-# Retired = Codacy + the old triage-bot. CodeRabbit is NOT retired: the
-# Pro Plus subscription re-activated 2026-06-11 and its configs must
-# survive fleet sweeps — do not re-add coderabbit paths to the kill list.
+# Retired = Codacy + the old triage-bot + the coderabbit-autofix WORKFLOW
+# (auto-commenting at reviewer bots is retired automation, 2026-06-11).
+# Per-repo `.coderabbit.yaml` CONFIG files are NOT retired — they are wanted
+# per-repo review tuning and must survive fleet sweeps. Never add
+# .coderabbit.yaml (or any config path) to the kill list.
 #
 # Default-branch deletes can be attempted first, but the caller may force a
-# branch + PR for reviewable fleet sweeps. Replacement CodeRabbit config and
-# Autofix workflow sync is handled separately by sync-coderabbit-automation.sh.
+# branch + PR for reviewable fleet sweeps.
 
 set -euo pipefail
 
@@ -61,6 +62,7 @@ cat > "$tmp_paths" <<'PATHS'
 .github/workflows/codacy-security.yml
 .github/workflows/codacy-sast.yml
 .github/workflows/triage-bot.yml
+.github/workflows/coderabbit-autofix.yml
 PATHS
 
 workflow_paths="$(gh api "repos/$repo/contents/.github/workflows?ref=$default_branch" \
@@ -176,7 +178,7 @@ if [ -z "$existing_pr" ]; then
     --base "$default_branch" \
     --head "$branch_name" \
     --title "chore: remove retired review automation" \
-    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired Codacy workflow and config files plus the old triage-bot workflow. CodeRabbit files are deliberately NOT touched — Pro Plus is the active review and repair surface. CodeRabbit configuration and Autofix automation are synced separately." \
+    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired Codacy workflow and config files, the old triage-bot workflow, and the retired coderabbit-autofix workflow. Per-repo .coderabbit.yaml config files are deliberately NOT touched." \
     2>/dev/null || true)"
   pr_num="$(grep -oE '[0-9]+$' <<<"$pr_url" || true)"
   if [ -z "$pr_num" ]; then

@@ -5,13 +5,15 @@ early_access: true
 
 reviews:
   profile: assertive
-  request_changes_workflow: true
+  # Advisory only — CodeRabbit never blocks a merge here: no requested-changes
+  # gate, no failing commit status.
+  request_changes_workflow: false
   high_level_summary: true
   high_level_summary_in_walkthrough: true
   review_status: true
   review_details: true
   commit_status: true
-  fail_commit_status: true
+  fail_commit_status: false
   collapse_walkthrough: true
   changed_files_summary: true
   sequence_diagrams: true
@@ -69,7 +71,7 @@ reviews:
       mode: warning
     custom_checks:
       - name: No retired reviewers
-        mode: error
+        mode: warning
         instructions: |
           Fail if the PR adds or restores Codacy configuration, Codacy workflows, the old triage-bot workflow, reviewer-triage automation, or a workflow that asks a non-CodeRabbit reviewer bot to review or repair pull requests. CodeRabbit configuration, CodeRabbit commands, and native GitHub auto-merge are allowed.
       - name: Automation is event scoped

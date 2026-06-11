@@ -10,7 +10,6 @@ In scope:
 - idempotent repository settings enforcement
 - profile-repository bootstrap
 - reusable workflow templates for downstream repositories
-- CodeRabbit Pro Plus review and repair automation
 - retired reviewer cleanup
 
 Out of scope:
@@ -23,44 +22,29 @@ Out of scope:
 
 ## Review Model
 
-CodeRabbit Pro Plus is the active review and repair surface.
+AI reviews are **advisory**. CodeRabbit reviews PRs from `.coderabbit.yaml`
+where a repo carries one, but nothing blocks on a review, nothing auto-triages
+review threads, and nothing auto-requests fixes. Review comments are input for
+the human (or their interactive agent) — there is no automated follow-up.
 
-The fleet model is:
-
-1. CodeRabbit reviews PRs automatically from `.coderabbit.yaml`.
-2. If CodeRabbit posts inline findings, `.github/workflows/coderabbit-autofix.yml`
-   posts one `@coderabbitai autofix stacked pr` command for that PR head SHA.
-3. CodeRabbit Autofix performs the repair in a separate pass and opens a stacked
-   PR or reports that it cannot apply a fix.
-4. Native GitHub auto-merge waits for branch protection and reviewer approval.
-
-There is no homegrown reviewer-triage parser. CodeRabbit comments are not fed
-into a custom bot that tries to interpret AI output. They are fed back to
-CodeRabbit Autofix, which is the supported repair path.
-
-The documented CodeRabbit surfaces used here are:
-
-- `.coderabbit.yaml` for automatic review, finishing touches, path
-  instructions, and pre-merge checks.
-- `@coderabbitai autofix stacked pr` for a separate repair PR after review.
-- CodeRabbit finishing-touch recipes for repeated automation cleanup and repair
-  tasks.
+This control plane does not seed, sync, or run any reviewer automation.
 
 ## Retired Services
 
-Codacy and the old `triage-bot.yml` workflow are retired. Do not add their
-configuration files, GitHub Actions, secrets, badges, templates, or invocation
-comments back to this repository or generated fleet files.
+Codacy, the old `triage-bot.yml` workflow, and the `coderabbit-autofix.yml`
+workflow (auto-commenting commands at reviewer bots) are retired. Do not add
+their configuration files, GitHub Actions, secrets, badges, templates, or
+invocation comments back to this repository or generated fleet files.
 
-CodeRabbit is explicitly not part of the retired set.
+Per-repo `.coderabbit.yaml` config files are not part of the retired set —
+they are wanted per-repo review tuning and are never touched by cleanup.
 
 ## Workflows
 
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot files; syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds `.coderabbit.yaml` where absent (existing tuned configs are never overwritten); syncs `coderabbit-autofix.yml`; and syncs `auto-merge.yml` where already present. |
-| `coderabbit-autofix.yml` | CodeRabbit review submitted + manual dispatch | Posts `@coderabbitai autofix stacked pr` once per PR head SHA only when CodeRabbit has posted inline comments for that head. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot/coderabbit-autofix files; syncs branch-protection overrides; syncs opted-in NuGet publishing; and syncs `auto-merge.yml` where already present. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
 The removed cron lanes were:
@@ -81,33 +65,9 @@ relies on:
 - Renovate `platformAutomerge: true` for dependency PRs that the shared preset
   marks safe.
 - Branch protection required checks as the merge authority.
-- CodeRabbit review and Autofix as the review/repair layer.
 
 `auto-merge.yml` is event-driven. It enables native auto-merge for trusted
-automation branches, CodeRabbit-authored PRs, and CodeRabbit approvals. It does
-not poll PRs.
-
-## CodeRabbit Sync
-
-`scripts/sync-coderabbit-automation.sh` syncs two files into each target repo
-with different policies:
-
-- `.coderabbit.yaml` — **seed-only**: created when absent, never overwritten.
-  An existing file is per-repo tuning and wins over the fleet template.
-- `.github/workflows/coderabbit-autofix.yml` — **replace**: kept canonical.
-
-It writes directly to the default branch when allowed. If branch protection or
-rulesets block the write, it creates or reuses
-`automation/coderabbit-pro-plus-sync`, updates the files there, opens a PR, and
-tries to enable native auto-merge.
-
-The workflow it syncs is intentionally narrow:
-
-- it is triggered by CodeRabbit review submission, not a cron
-- it skips non-CodeRabbit reviews
-- it checks that CodeRabbit posted inline comments for the current head SHA
-- it posts one marked Autofix command per head SHA
-- default delivery is a stacked PR, not direct mutation of the original PR
+automation branches. It does not poll PRs.
 
 ## Fleet Cleanup
 
@@ -118,8 +78,9 @@ surface from each target repo:
 - known Codacy workflow files under `.github/workflows/`
 - any workflow file whose content still mentions Codacy
 - the old `triage-bot.yml` workflow
+- the retired `coderabbit-autofix.yml` workflow
 
-CodeRabbit files are deliberately exempt.
+Per-repo `.coderabbit.yaml` config files are deliberately exempt.
 
 ## Templates
 
@@ -128,8 +89,6 @@ target repositories by `enforce-repo-settings.yml`.
 
 | Template | Adoption mode |
 |---|---|
-| `coderabbit.yaml` | Seeded as `.coderabbit.yaml` in topic targets that don't have one. Existing (tuned) files are never overwritten. |
-| `coderabbit-autofix.yml` | Synced to `.github/workflows/coderabbit-autofix.yml` in every topic target. |
 | `auto-merge.yml` | Replaced when an existing downstream copy drifts from the canonical template. Repos without the workflow are skipped. |
 | `nuget-publish.yml` | Synced only into repos listed under `nuget_publishers:` in `scripts/drift-policy.yaml`. |
 
@@ -158,8 +117,8 @@ Both PATs need `Workflows: Read and write` because workflow sync writes files
 below `.github/workflows/*`, which GitHub gates behind an additional permission
 beyond `Contents: write`.
 
-Both PATs need `Issues: Read and write` because the CodeRabbit Autofix workflow
-posts PR comments through the GitHub issues comments API.
+Both PATs need `Issues: Read and write` because cleanup and drift workflows
+post PR/issue comments through the GitHub issues comments API.
 
 The org PAT needs Organization-level `Administration: write` because creating a
 new repo under the org uses an organization-scoped endpoint.

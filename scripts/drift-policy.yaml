@@ -71,7 +71,6 @@ watch:
   - path: .prettierrc
 
   # Reviewer/automation configs
-  - path: .coderabbit.yaml
   - path: .codecov.yml
   - path: codecov.yml
 
@@ -97,7 +96,6 @@ watch:
 
   # Shared workflows
   - path: .github/workflows/auto-merge.yml
-  - path: .github/workflows/coderabbit-autofix.yml
   - path: .github/workflows/ci.yml
 
   # Build host
