@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: "Direct, technical, no filler. Prioritize correctness, security, data loss, CI, release, and automation bugs."
+early_access: true
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  review_details: true
+  commit_status: true
+  fail_commit_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  enable_prompt_for_ai_agents: true
+  abort_on_close: true
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+    drafts: false
+    ignore_title_keywords:
+      - wip
+      - draft
+      - do not review
+      - no review
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+    custom:
+      - name: repair automation
+        instructions: |
+          Repair GitHub Actions, repository automation, shell scripts, Python scripts, and configuration drift at the root cause. Keep the patch minimal and production-usable. Do not reintroduce Codacy, the old triage bot, or any non-CodeRabbit reviewer workflow. Prefer deleting stale automation over adding compatibility shims. Run relevant local syntax checks when the repository exposes them.
+      - name: cleanup stale review automation
+        instructions: |
+          Remove stale reviewer automation, obsolete bot comments, dead workflow files, and stale documentation that claims non-CodeRabbit review or repair paths. Keep CodeRabbit configuration and workflows intact. Do not remove release, package publishing, branch protection, or native auto-merge automation unless it directly invokes a retired reviewer.
+  pre_merge_checks:
+    override_requested_reviewers_only: false
+    title:
+      mode: warning
+      requirements: "The title must be concise, accurate, and describe the concrete change."
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+    custom_checks:
+      - name: No retired reviewers
+        mode: error
+        instructions: |
+          Fail if the PR adds or restores Codacy configuration, Codacy workflows, the old triage-bot workflow, reviewer-triage automation, or a workflow that asks a non-CodeRabbit reviewer bot to review or repair pull requests. CodeRabbit configuration, CodeRabbit commands, and native GitHub auto-merge are allowed.
+      - name: Automation is event scoped
+        mode: warning
+        instructions: |
+          Warn if repository automation introduces high-frequency cron polling for PR review or repair. Event-driven workflows and manual workflow_dispatch operations are preferred. Scheduled drift or settings sweeps are acceptable when they do not trigger reviewer runs.
+  path_instructions:
+    - path: ".github/workflows/**"
+      instructions: "Check event triggers, permissions, token scope, concurrency, loop prevention, and whether the workflow can spam comments or consume paid reviewer quota."
+    - path: "scripts/**"
+      instructions: "Check shell/Python error handling, target-repo safety, idempotency, protected branch handling, and whether direct writes fall back cleanly to PRs."
+    - path: "templates/**"
+      instructions: "Treat templates as fleet source of truth. Verify downstream sync behavior and avoid template-workflow drift."
+
+tools:
+  shellcheck:
+    enabled: true
+  ruff:
+    enabled: true
+  markdownlint:
+    enabled: true
+  github-checks:
+    enabled: true
+    timeout_ms: 300000
+
+chat:
+  auto_reply: true
+

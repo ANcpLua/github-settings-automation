@@ -6,8 +6,8 @@
 # survive fleet sweeps — do not re-add coderabbit paths to the kill list.
 #
 # Default-branch deletes can be attempted first, but the caller may force a
-# branch + PR for reviewable fleet sweeps. Replacement guidance is handled
-# separately by scripts/sync-codex-guidance.sh.
+# branch + PR for reviewable fleet sweeps. Replacement CodeRabbit config and
+# Autofix workflow sync is handled separately by sync-coderabbit-automation.sh.
 
 set -euo pipefail
 
@@ -176,7 +176,7 @@ if [ -z "$existing_pr" ]; then
     --base "$default_branch" \
     --head "$branch_name" \
     --title "chore: remove retired review automation" \
-    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired Codacy workflow and config files plus the old triage-bot workflow. CodeRabbit files are deliberately NOT touched — the Pro Plus subscription is active again (2026-06-11). Codex replacement guidance is synced separately through AGENTS.md and code_review.md." \
+    --body "Automated by ANcpLua/github-settings-automation with the authenticated REPO_SETTINGS_PAT_* account, so GitHub shows that account as the PR author. Removes retired Codacy workflow and config files plus the old triage-bot workflow. CodeRabbit files are deliberately NOT touched — Pro Plus is the active review and repair surface. CodeRabbit configuration and Autofix automation are synced separately." \
     2>/dev/null || true)"
   pr_num="$(grep -oE '[0-9]+$' <<<"$pr_url" || true)"
   if [ -z "$pr_num" ]; then

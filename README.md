@@ -1,7 +1,7 @@
 # github-settings-automation
 
-Private control plane for reproducible repository and organization settings
-across `ANcpLua/*` and `O-ANcppLua/*`.
+Control plane for reproducible repository and organization settings across
+`ANcpLua/*` and `O-ANcppLua/*`.
 
 ## Scope
 
@@ -10,7 +10,8 @@ In scope:
 - idempotent repository settings enforcement
 - profile-repository bootstrap
 - reusable workflow templates for downstream repositories
-- Codex-first review and repair guidance
+- CodeRabbit Pro Plus review and repair automation
+- retired reviewer cleanup
 
 Out of scope:
 
@@ -20,168 +21,154 @@ Out of scope:
 - repository transfers
 - secret rotation
 
-## Retired services
+## Review Model
 
-The paid external reviewer surfaces are retired. Do not add their configuration
-files, GitHub Actions, secrets, badges, templates, or invocation comments back
-to this repository or to generated fleet guidance.
+CodeRabbit Pro Plus is the active review and repair surface.
 
-The replacement path is Codex-first:
+The fleet model is:
 
-- Codex GitHub code review is configured in Codex settings, not by a workflow in
-  this repository.
-- `@codex review` requests a focused review on a pull request.
-- `@codex fix ...` starts a Codex cloud task with the pull request as context.
-- `AGENTS.md` and `code_review.md` carry durable review guidance for local and
-  cloud Codex runs.
-- The local operating model is a coordinator plus three roles: Implementer,
-  Reviewer, and Improver.
+1. CodeRabbit reviews PRs automatically from `.coderabbit.yaml`.
+2. If CodeRabbit posts inline findings, `.github/workflows/coderabbit-autofix.yml`
+   posts one `@coderabbitai autofix stacked pr` command for that PR head SHA.
+3. CodeRabbit Autofix performs the repair in a separate pass and opens a stacked
+   PR or reports that it cannot apply a fix.
+4. Native GitHub auto-merge waits for branch protection and reviewer approval.
 
-References:
+There is no homegrown reviewer-triage parser. CodeRabbit comments are not fed
+into a custom bot that tries to interpret AI output. They are fed back to
+CodeRabbit Autofix, which is the supported repair path.
 
-- https://developers.openai.com/codex/integrations/github
-- https://developers.openai.com/codex/concepts/customization
+The documented CodeRabbit surfaces used here are:
+
+- `.coderabbit.yaml` for automatic review, finishing touches, path
+  instructions, and pre-merge checks.
+- `@coderabbitai autofix stacked pr` for a separate repair PR after review.
+- CodeRabbit finishing-touch recipes for repeated automation cleanup and repair
+  tasks.
+
+## Retired Services
+
+Codacy and the old `triage-bot.yml` workflow are retired. Do not add their
+configuration files, GitHub Actions, secrets, badges, templates, or invocation
+comments back to this repository or generated fleet files.
+
+CodeRabbit is explicitly not part of the retired set.
 
 ## Workflows
 
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. PATCHes repos under `ANcpLua` and `O-ANcppLua` to enable `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy workflow/config files and the old triage bot (CodeRabbit files are kept — Pro Plus is active again since 2026-06-11); syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds or updates managed Codex guidance (`AGENTS.md`, `code_review.md`); and syncs `auto-merge.yml`. `sweep_mode` dispatch input: `topic`, `recent` (created in last 8 days), `full` (every non-fork active repo). Scheduled cron uses `topic`. |
-| `pr-heal.yml` | every 15 min cron + dispatch | Fleet-wide PR handoff. Scans active repos for stuck PRs (`BEHIND`, `DIRTY`, `BLOCKED`, `UNSTABLE`) that should merge and posts one copyable Codex cloud handoff prompt. Targets a single PR via the `target` input (`owner/repo#N`) for ad-hoc dispatch. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot files; syncs branch-protection overrides; syncs opted-in NuGet publishing; syncs `.coderabbit.yaml`; syncs `coderabbit-autofix.yml`; and syncs `auto-merge.yml` where already present. |
+| `coderabbit-autofix.yml` | CodeRabbit review submitted + manual dispatch | Posts `@coderabbitai autofix stacked pr` once per PR head SHA only when CodeRabbit has posted inline comments for that head. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
-## Auto-merge posture
+The removed cron lanes were:
 
-No third-party auto-merge App, no destructive merge workflow, and no retired
-paid reviewer gate. The fleet relies on:
+- `codex-review.yml`: posted review requests across the fleet every 15 minutes.
+- `pr-heal.yml`: scanned for stuck PRs every 15 minutes and posted repair
+  handoff prompts.
+
+Those files were deleted because they duplicated CodeRabbit, created comment
+noise, and kept a manual handoff model alive.
+
+## Auto-Merge Posture
+
+No third-party auto-merge App and no destructive merge workflow. The fleet
+relies on:
 
 - GitHub native auto-merge, enabled by `enforce-repo-settings.yml`.
 - Renovate `platformAutomerge: true` for dependency PRs that the shared preset
   marks safe.
 - Branch protection required checks as the merge authority.
-- Codex review as advisory signal through GitHub code review or explicit
-  `@codex review`.
+- CodeRabbit review and Autofix as the review/repair layer.
 
-Bot and agent PRs using trusted branch prefixes (`codex/`, `copilot/`) can be
-auto-flipped by `auto-merge.yml`. Owner-authored PRs flow
-through the central `pr-heal.yml` cooldown so Codex review and other advisory
-comments can land before merge-on-green is enabled.
+`auto-merge.yml` is event-driven. It enables native auto-merge for trusted
+automation branches, CodeRabbit-authored PRs, and CodeRabbit approvals. It does
+not poll PRs.
 
-### Scenario A: does not merge
+## CodeRabbit Sync
 
-Renovate opens a dependency minor bump and enables native auto-merge. The bump
-introduces a breaking API change, so a required check fails. Native auto-merge
-waits for green CI. Codex review may point at the failing area, but it is not a
-merge authority. The PR remains open until Codex cloud or a human fixes the
-branch.
+`scripts/sync-coderabbit-automation.sh` syncs two files into each target repo:
 
-### Scenario B: does merge
+- `.coderabbit.yaml`
+- `.github/workflows/coderabbit-autofix.yml`
 
-Renovate opens a trusted patch bump. The shared Renovate preset enables native
-auto-merge. CI is green and branch protection is satisfied. GitHub squash-merges
-and deletes the branch with no extra reviewer service in the path.
+It writes directly to the default branch when allowed. If branch protection or
+rulesets block the write, it creates or reuses
+`automation/coderabbit-pro-plus-sync`, updates the files there, opens a PR, and
+tries to enable native auto-merge.
 
-## PR self-healing
+The workflow it syncs is intentionally narrow:
 
-`pr-heal.yml` closes the "ready but stuck" gap for a solo-maintainer fleet.
-Every 15 minutes, it scans active repositories for open, non-draft PRs that
-have auto-merge enabled or carry `auto-resolve`, and whose `mergeStateStatus` is
-`BEHIND`, `DIRTY`, `BLOCKED`, or `UNSTABLE`.
-
-The current repair/reporting chain is intentionally flat:
-
-1. Codex cloud handoff prompt. The workflow posts one marked comment containing
-   a copyable `@codex ...` prompt. This keeps the Codex path visible without
-   claiming that workflow-authored comments are a supported Codex task API.
-
-There is no classic-PAT triage helper, no hardcoded App installation scope, and
-no third-party repair action in this lane. Cross-repo PR lookup and comments
-reuse `REPO_SETTINGS_PAT_USER` / `REPO_SETTINGS_PAT_ORG`.
+- it is triggered by CodeRabbit review submission, not a cron
+- it skips non-CodeRabbit reviews
+- it checks that CodeRabbit posted inline comments for the current head SHA
+- it posts one marked Autofix command per head SHA
+- default delivery is a stacked PR, not direct mutation of the original PR
 
 ## Fleet Cleanup
 
 `scripts/remove-retired-review-automation.sh` removes the retired reviewer
-surface from each target repo before guidance sync runs:
+surface from each target repo:
 
 - known Codacy config files
 - known Codacy workflow files under `.github/workflows/`
 - any workflow file whose content still mentions Codacy
 - the old `triage-bot.yml` workflow
 
-CodeRabbit files are deliberately exempt: the Pro Plus subscription
-re-activated on 2026-06-11 and CodeRabbit is part of the active reviewer set
-again. Do not re-add coderabbit paths to the cleanup kill list.
-
-The `enforce-repo-settings.yml` topic sweep runs this cleanup in
-`pull_request` mode by default and leaves auto-merge disabled. Repos tagged
-`qyl` or `ancplua-fleet` get a cleanup PR only when there is an actual diff to
-review. GitHub shows the PR author as the owner of the authenticated
-`REPO_SETTINGS_PAT_USER` / `REPO_SETTINGS_PAT_ORG` token, not
-`github-actions[bot]`.
-
-The replacement is Codex guidance, not another fake bot trigger. Codex review
-is enabled in Codex settings or requested with `@codex review`; repair is
-requested with `@codex fix ...` from the PR.
+CodeRabbit files are deliberately exempt.
 
 ## Templates
 
-`templates/` files are not executed from this repository. They are copied or
-seeded into target repositories by `enforce-repo-settings.yml`.
+`templates/` files are not executed from this repository. They are copied into
+target repositories by `enforce-repo-settings.yml`.
 
 | Template | Adoption mode |
 |---|---|
-| `AGENTS.md` | Seeded when missing, updated only when the existing file carries the managed marker. Custom downstream files are skipped. |
-| `code_review.md` | Same managed-marker behavior as `AGENTS.md`; referenced by the managed `AGENTS.md`. |
+| `coderabbit.yaml` | Synced to `.coderabbit.yaml` in every topic target. |
+| `coderabbit-autofix.yml` | Synced to `.github/workflows/coderabbit-autofix.yml` in every topic target. |
 | `auto-merge.yml` | Replaced when an existing downstream copy drifts from the canonical template. Repos without the workflow are skipped. |
 | `nuget-publish.yml` | Synced only into repos listed under `nuget_publishers:` in `scripts/drift-policy.yaml`. |
 
-Active workflow templates use maintained major action tags instead of pinned
-third-party SHAs so version updates flow through the canonical template sync
-rather than fossilizing in each repo.
+Active workflow templates use maintained major action tags or direct `gh` CLI
+operations. If a workflow calls a third-party action by SHA, keep the version
+comment next to the SHA.
 
-The Renovate preset also avoids static package-version matrices. The Microsoft
-Agent Framework policy is one dynamic NuGet family rule: stable and RC versions
-are allowed, preview/alpha/beta/dev builds are excluded, and new
-`Microsoft.Agents.AI.*` packages match without editing a local allowlist.
-The old static `Version.props` custom-manager inventory is gone; dependency
-updates now rely on Renovate's native managers and broad package-family rules
-instead of hardcoding one XML property per package.
-
-## Required secrets
+## Required Secrets
 
 A single fine-grained PAT cannot span both a user and an org. Two PATs are
 required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and PR repair |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories + Organization: `Administration: Read and write` | org-side enforcement and PR repair |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and workflow/config sync |
+| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories + Organization: `Administration: Read and write` | org-side enforcement and workflow/config sync |
 | `NUGET_USER` | n/a | nuget.org username, not an API key | central NuGet publishing sync |
 
-Both PATs need `Contents: Read and write` because the guidance and workflow
-sync steps write files through the repository contents API.
+Both PATs need `Contents: Read and write` because sync steps write files through
+the repository contents API.
 
-Both PATs need `Pull requests: Read and write` because `pr-heal.yml` checks PR
-state and may enable native auto-merge.
+Both PATs need `Pull requests: Read and write` because protected repositories
+fall back to branch-and-PR updates and may enable native auto-merge.
 
-Both PATs need `Workflows: Read and write` because the workflow sync steps write
-files below `.github/workflows/*`, which GitHub gates behind an additional
-permission beyond `Contents: write`.
+Both PATs need `Workflows: Read and write` because workflow sync writes files
+below `.github/workflows/*`, which GitHub gates behind an additional permission
+beyond `Contents: write`.
 
-Both PATs need `Issues: Read and write` because PR conversation comments use
-the GitHub issues comments API.
+Both PATs need `Issues: Read and write` because the CodeRabbit Autofix workflow
+posts PR comments through the GitHub issues comments API.
 
 The org PAT needs Organization-level `Administration: write` because creating a
 new repo under the org uses an organization-scoped endpoint.
 
-## Config drift detector
+## Config Drift Detector
 
 `scripts/drift_check.py` audits a watchlist of shared configuration files across
 listed repositories and reports semantic drift, not byte-level drift. Whitespace,
 JSON key order, and YAML flow style do not create false drift by themselves.
 
-### Running locally
+### Running Locally
 
 ```bash
 pip install pyyaml
@@ -191,12 +178,12 @@ python scripts/drift_check.py \
   --manifest drift-manifest.json
 ```
 
-Exit code `0` means all watched paths have one semantic cluster, `1` means
-drift was found, and `2` means configuration or authentication failed.
+Exit code `0` means all watched paths have one semantic cluster, `1` means drift
+was found, and `2` means configuration or authentication failed.
 
 The detector reads GitHub through the `gh` CLI, so `gh auth status` must pass.
 
-### Adding a repo or watched path
+### Adding a Repo or Watched Path
 
 Edit `scripts/drift-policy.yaml`:
 

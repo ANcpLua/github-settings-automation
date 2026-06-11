@@ -71,9 +71,9 @@ watch:
   - path: .prettierrc
 
   # Reviewer/automation configs
+  - path: .coderabbit.yaml
   - path: .codecov.yml
   - path: codecov.yml
-  - path: code_review.md
 
   # Repo hygiene
   - path: .gitattributes
@@ -97,6 +97,7 @@ watch:
 
   # Shared workflows
   - path: .github/workflows/auto-merge.yml
+  - path: .github/workflows/coderabbit-autofix.yml
   - path: .github/workflows/ci.yml
 
   # Build host
@@ -104,7 +105,6 @@ watch:
   - path: build.cmd
   - path: build.ps1
 
-  # License / agent docs (compared raw — surfaces accidental Mintlify-style
-  # default attribution leftovers)
+  # License (compared raw — surfaces accidental Mintlify-style default
+  # attribution leftovers)
   - path: LICENSE
-  - path: AGENTS.md

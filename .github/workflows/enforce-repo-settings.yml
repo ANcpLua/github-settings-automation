@@ -20,6 +20,13 @@ on:
           - pull_request
           - direct
         default: pull_request
+      coderabbit_sync_mode:
+        description: "direct syncs CodeRabbit files to default branches when allowed; pull_request always opens sync PRs"
+        type: choice
+        options:
+          - direct
+          - pull_request
+        default: direct
 
 permissions:
   contents: read
@@ -154,20 +161,22 @@ jobs:
             done < nuget-targets.txt
           fi
 
-      - name: Sync Codex guidance (seed or update managed files)
+      - name: Sync CodeRabbit Pro Plus automation
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
+          CODERABBIT_SYNC_WRITE_MODE: ${{ inputs.coderabbit_sync_mode || 'direct' }}
+          CODERABBIT_SYNC_AUTO_MERGE: "true"
         run: |
           set -euo pipefail
           while read -r repo; do
             [ -z "$repo" ] && continue
-            scripts/sync-codex-guidance.sh "$repo" templates/AGENTS.md templates/code_review.md \
-              || echo "::warning::sync-codex-guidance.sh exited non-zero for $repo"
+            scripts/sync-coderabbit-automation.sh "$repo" templates/coderabbit.yaml templates/coderabbit-autofix.yml \
+              || echo "::warning::sync-coderabbit-automation.sh exited non-zero for $repo"
           done < targets.txt
 
       # Sync auto-merge.yml. Unlike the guidance sync above (skip-if-custom),
       # this REPLACES — the bug we fix here (the now-removed owner-clause
-      # that caused PR#170 to merge before advisory review could land) lives
+      # that caused PR#170 to merge before CodeRabbit review could land) lives
       # in the existing per-repo files and must be overwritten. Skip repos
       # that don't already have an auto-merge.yml: we don't push the
       # workflow into repos that opted out.
@@ -203,7 +212,7 @@ jobs:
             fi
             echo "Updating $repo's auto-merge.yml to canonical"
             gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --method PUT --silent \
-              -f "message=chore: sync auto-merge.yml to canonical (remove owner-clause; cooldown lives in pr-heal.yml)" \
+              -f "message=chore: sync auto-merge.yml to canonical" \
               -f "content=$CONTENT_B64" \
               -f "sha=$current_sha" \
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"
@@ -328,9 +337,11 @@ jobs:
             done < nuget-targets.txt
           fi
 
-      - name: Sync Codex guidance (seed or update managed files)
+      - name: Sync CodeRabbit Pro Plus automation
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
+          CODERABBIT_SYNC_WRITE_MODE: ${{ inputs.coderabbit_sync_mode || 'direct' }}
+          CODERABBIT_SYNC_AUTO_MERGE: "true"
         run: |
           set -euo pipefail
           while read -r repo; do
@@ -338,8 +349,8 @@ jobs:
             case "$repo" in
               O-ANcppLua/.github|O-ANcppLua/.github-private) echo "Skip $repo — meta repo"; continue ;;
             esac
-            scripts/sync-codex-guidance.sh "$repo" templates/AGENTS.md templates/code_review.md \
-              || echo "::warning::sync-codex-guidance.sh exited non-zero for $repo"
+            scripts/sync-coderabbit-automation.sh "$repo" templates/coderabbit.yaml templates/coderabbit-autofix.yml \
+              || echo "::warning::sync-coderabbit-automation.sh exited non-zero for $repo"
           done < targets.txt
 
       - name: Sync auto-merge.yml (replace if drifted from template)
@@ -377,7 +388,7 @@ jobs:
             fi
             echo "Updating $repo's auto-merge.yml to canonical"
             gh api "repos/$repo/contents/.github/workflows/auto-merge.yml" --method PUT --silent \
-              -f "message=chore: sync auto-merge.yml to canonical (owner-clause removed; cooldown lives in pr-heal.yml)" \
+              -f "message=chore: sync auto-merge.yml to canonical" \
               -f "content=$CONTENT_B64" \
               -f "sha=$current_sha" \
               || echo "::warning::Failed to update auto-merge.yml on $repo (ruleset or PAT scope)"

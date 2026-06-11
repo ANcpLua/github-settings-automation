@@ -86,7 +86,7 @@ def branch_protection(repo: str, branch: str = "main") -> dict | None:
     if the branch is unprotected. Useful to route writes:
 
     * unprotected → ``gh api PUT /repos/X/Y/contents/<path>`` direct
-    * protected → branch + PR + rely on auto-merge.yml (or pr-heal.yml cron)
+    * protected → branch + PR + rely on native auto-merge when available
 
     Spec note: this is the *classic* branch-protection check. If the repo uses
     a ruleset instead (newer GitHub feature), call ``branch_rulesets()``.
