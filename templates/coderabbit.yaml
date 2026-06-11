@@ -32,6 +32,13 @@ reviews:
     auto_incremental_review: true
     auto_pause_after_reviewed_commits: 5
     drafts: false
+    # Loop brake: never auto-review CodeRabbit's own (autofix/stacked) PRs —
+    # otherwise review -> autofix -> stacked PR -> review cascades and burns
+    # the Pro Plus quota. Bot dependency PRs auto-merge without review anyway.
+    ignore_usernames:
+      - "coderabbitai[bot]"
+      - "dependabot[bot]"
+      - "renovate[bot]"
     ignore_title_keywords:
       - wip
       - draft

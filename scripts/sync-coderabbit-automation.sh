@@ -97,17 +97,32 @@ needs_update() {
   [ "$current" != "$(cat "$template")" ]
 }
 
+# Policy per path: "seed" creates the file only when absent — an existing
+# .coderabbit.yaml is per-repo tuning (the whole point of CodeRabbit config)
+# and must never be flattened back to the fleet template. "replace" keeps the
+# file canonical (the autofix workflow is infrastructure, not tuning).
 sync_paths=(
-  ".coderabbit.yaml|$config_template"
-  ".github/workflows/coderabbit-autofix.yml|$workflow_template"
+  ".coderabbit.yaml|$config_template|seed"
+  ".github/workflows/coderabbit-autofix.yml|$workflow_template|replace"
 )
+
+skip_seed_existing() {
+  local path="$1" policy="$2"
+  [ "$policy" = "seed" ] && [ -n "$(content_sha "$path" "$default_branch")" ]
+}
 
 pr_needed=false
 changed_direct=false
 
 for entry in "${sync_paths[@]}"; do
   path="${entry%%|*}"
-  template="${entry#*|}"
+  rest="${entry#*|}"
+  template="${rest%%|*}"
+  policy="${rest#*|}"
+  if skip_seed_existing "$path" "$policy"; then
+    log "$path exists; preserving per-repo tuning (seed-only)"
+    continue
+  fi
   if ! needs_update "$path" "$template" "$default_branch"; then
     log "$path already canonical"
     continue
@@ -154,7 +169,13 @@ fi
 
 for entry in "${sync_paths[@]}"; do
   path="${entry%%|*}"
-  template="${entry#*|}"
+  rest="${entry#*|}"
+  template="${rest%%|*}"
+  policy="${rest#*|}"
+  if skip_seed_existing "$path" "$policy"; then
+    log "$path exists on $default_branch; preserving per-repo tuning (seed-only)"
+    continue
+  fi
   if ! needs_update "$path" "$template" "$branch_name"; then
     log "$path already canonical on $branch_name"
     continue

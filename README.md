@@ -59,7 +59,7 @@ CodeRabbit is explicitly not part of the retired set.
 | Workflow | Trigger | Effect |
 |---|---|---|
 | `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
-| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot files; syncs branch-protection overrides; syncs opted-in NuGet publishing; syncs `.coderabbit.yaml`; syncs `coderabbit-autofix.yml`; and syncs `auto-merge.yml` where already present. |
+| `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot files; syncs branch-protection overrides; syncs opted-in NuGet publishing; seeds `.coderabbit.yaml` where absent (existing tuned configs are never overwritten); syncs `coderabbit-autofix.yml`; and syncs `auto-merge.yml` where already present. |
 | `coderabbit-autofix.yml` | CodeRabbit review submitted + manual dispatch | Posts `@coderabbitai autofix stacked pr` once per PR head SHA only when CodeRabbit has posted inline comments for that head. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
@@ -89,10 +89,12 @@ not poll PRs.
 
 ## CodeRabbit Sync
 
-`scripts/sync-coderabbit-automation.sh` syncs two files into each target repo:
+`scripts/sync-coderabbit-automation.sh` syncs two files into each target repo
+with different policies:
 
-- `.coderabbit.yaml`
-- `.github/workflows/coderabbit-autofix.yml`
+- `.coderabbit.yaml` — **seed-only**: created when absent, never overwritten.
+  An existing file is per-repo tuning and wins over the fleet template.
+- `.github/workflows/coderabbit-autofix.yml` — **replace**: kept canonical.
 
 It writes directly to the default branch when allowed. If branch protection or
 rulesets block the write, it creates or reuses
@@ -126,7 +128,7 @@ target repositories by `enforce-repo-settings.yml`.
 
 | Template | Adoption mode |
 |---|---|
-| `coderabbit.yaml` | Synced to `.coderabbit.yaml` in every topic target. |
+| `coderabbit.yaml` | Seeded as `.coderabbit.yaml` in topic targets that don't have one. Existing (tuned) files are never overwritten. |
 | `coderabbit-autofix.yml` | Synced to `.github/workflows/coderabbit-autofix.yml` in every topic target. |
 | `auto-merge.yml` | Replaced when an existing downstream copy drifts from the canonical template. Repos without the workflow are skipped. |
 | `nuget-publish.yml` | Synced only into repos listed under `nuget_publishers:` in `scripts/drift-policy.yaml`. |
