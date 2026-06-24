@@ -12,7 +12,7 @@
   "labels": [
     "dependencies"
   ],
-  "platformAutomerge": false,
+  "platformAutomerge": true,
   "prHourlyLimit": 2,
   "prConcurrentLimit": 5,
   "packageRules": [
