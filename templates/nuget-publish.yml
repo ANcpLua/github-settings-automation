@@ -61,9 +61,19 @@ permissions:
   id-token: write
   packages: write
 
+concurrency:
+  # Serialize releases per ref; never cancel an in-flight publish (registries are immutable,
+  # so a half-published, cancelled run can strand artifacts).
+  group: nuget-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Must match the nuget.org Trusted Publisher policy's Environment field. The policies for
+    # these repos use Environment 'nuget'; without this the OIDC token carries an empty environment
+    # claim and NuGet/login fails with HTTP 401 "Environment mismatch ... expected 'nuget', actual ''".
+    environment: nuget
     steps:
       - uses: actions/checkout@v6
         with:
