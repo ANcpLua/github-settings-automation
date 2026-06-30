@@ -5,9 +5,9 @@
 # weekly enforce-repo-settings sweep. Do not hand-edit per-repo.
 #
 # This file is per-repo and event-driven. It enables native GitHub auto-merge
-# only for trusted automation branches (codex/, copilot/) and Codex-approved
-# manual PRs. There is no central PR-heal cron in the merge path, and no
-# review-bot (CodeRabbit etc.) approval ever triggers a merge.
+# only for trusted automation branches (claude/, copilot/). There is no central
+# PR-heal cron in the merge path, and no review-bot (CodeRabbit etc.) approval
+# ever triggers a merge.
 #
 # Renovate bot PRs do not need this workflow: Renovate enables native
 # auto-merge itself via `platformAutomerge: true` in the shared preset
@@ -25,7 +25,7 @@
 # natively without it).
 #
 # Branch-prefix policy:
-#   - codex/   — Codex agents
+#   - claude/  — Claude Code agents
 #   - copilot/ — GitHub Copilot agents when enabled
 
 name: Auto-merge
@@ -33,8 +33,6 @@ name: Auto-merge
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-  pull_request_review:
-    types: [submitted]
 
 permissions:
   contents: write
@@ -45,11 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event.pull_request.draft == false && (
-        startsWith(github.event.pull_request.head.ref, 'codex/') ||
-        startsWith(github.event.pull_request.head.ref, 'copilot/') ||
-        (github.event_name == 'pull_request_review'
-         && github.event.review.state == 'approved'
-         && github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+        startsWith(github.event.pull_request.head.ref, 'claude/') ||
+        startsWith(github.event.pull_request.head.ref, 'copilot/')
       )
     steps:
       - name: Enable native auto-merge (squash)
