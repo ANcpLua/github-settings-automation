@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Remove retired reviewer automation from one target repository.
 #
-# Retired = Codacy + the old triage-bot + the coderabbit-autofix WORKFLOW
-# (auto-commenting at reviewer bots is retired automation, 2026-06-11).
+# Retired = Codacy, triage-bot, and the coderabbit-autofix workflow.
 # Per-repo `.coderabbit.yaml` CONFIG files are NOT retired — they are wanted
 # per-repo review tuning and must survive fleet sweeps. Never add
 # .coderabbit.yaml (or any config path) to the kill list.

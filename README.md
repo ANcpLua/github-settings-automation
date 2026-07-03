@@ -47,19 +47,9 @@ they are wanted per-repo review tuning and are never touched by cleanup.
 | `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot/coderabbit-autofix files; syncs branch-protection overrides; syncs opted-in NuGet publishing; and syncs `auto-merge.yml` where already present. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
-The removed cron lanes were:
-
-- `codex-review.yml`: posted review requests across the fleet every 15 minutes.
-- `pr-heal.yml`: scanned for stuck PRs every 15 minutes and posted repair
-  handoff prompts.
-
-Those files were deleted because they duplicated CodeRabbit, created comment
-noise, and kept a manual handoff model alive.
-
 ## Auto-Merge Posture
 
-No third-party auto-merge App and no destructive merge workflow. The fleet
-relies on:
+The fleet relies on:
 
 - GitHub native auto-merge, enabled by `enforce-repo-settings.yml`.
 - Renovate `platformAutomerge: true` for dependency PRs that the shared preset
