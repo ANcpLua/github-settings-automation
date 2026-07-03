@@ -4,9 +4,8 @@
 # g-s-a, every fleet publisher inherits it on the next sync sweep.
 #
 # NUGET_USER (the nuget.org username, e.g. `ANcpLua`) is what
-# `NuGet/login@v1` uses during OIDC trusted-publishing token exchange.
-# It replaces the legacy NUGET_API_KEY pattern (rotation no longer
-# needed — keys are minted per-workflow-run via OIDC).
+# `NuGet/login@v1` uses during OIDC trusted-publishing token exchange;
+# no static API key secret is needed.
 #
 # Skips silently if NUGET_USER env var is empty (caller decides whether
 # that's an error — useful for dry-runs).

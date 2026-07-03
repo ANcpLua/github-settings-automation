@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Sync canonical branch-protection overrides onto one repo's default branch.
 #
-# Why this exists: PR #174 on ANcpLua/ANcpLua.Analyzers was blocked by
-# `required_conversation_resolution: true` after a reviewer integration was
-# removed (orphaned bot review threads, no way to resolve). The canonical
-# policy forces that field to `false` so no future bot-uninstall locks the
-# fleet out the same way. The sync engine OWNS that field going forward.
+# The canonical policy forces `required_conversation_resolution: false` so
+# a removed bot reviewer's orphaned review threads can never block merging.
+# The sync engine owns every key present in the policy file.
 #
 # Algorithm:
 #   1. GET current protection. If branch has none (404), skip — the sync

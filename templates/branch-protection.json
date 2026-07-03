@@ -1,10 +1,10 @@
 {
   "_comment": "Canonical branch-protection overrides applied to every fleet repo's default branch by scripts/sync-branch-protection.sh (called from .github/workflows/enforce-repo-settings.yml). Only keys present here are FORCED; everything else (CI checks, review requirements, restrictions) is preserved per-repo. To extend: add a key here, the sync engine picks it up on the next run.",
   "_why_each_key": {
-    "required_conversation_resolution": "PR #174 on ANcpLua/ANcpLua.Analyzers (2026-05-25) was blocked by orphaned bot review threads after a reviewer integration was removed. With conv_resolution=true, any removed bot reviewer can lock the fleet out of merging until each thread is manually resolved. Forcing this to false moves the gate to sturdier mechanisms (CI checks + required reviews when present) that do not depend on per-thread state managed by a reviewer that may no longer exist.",
+    "required_conversation_resolution": "Forced false: orphaned review threads from a removed bot reviewer can block merging with no way to resolve them; the merge gate stays with CI checks and required reviews instead of per-thread state.",
     "allow_force_pushes": "Universal: history loss prevention.",
     "allow_deletions": "Universal: branch protection should imply existence protection.",
-    "lock_branch": "Default off — only set true when explicitly archiving a branch."
+    "lock_branch": "Default off \u2014 only set true when explicitly archiving a branch."
   },
   "required_conversation_resolution": false,
   "allow_force_pushes": false,
