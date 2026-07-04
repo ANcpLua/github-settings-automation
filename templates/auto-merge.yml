@@ -13,6 +13,14 @@
 # auto-merge waits for. enforce-repo-settings.yml flips allow_auto_merge
 # automatically across the fleet.
 #
+# delete-merged-branch: repo-level delete_branch_on_merge reliably fires for
+# user-initiated merges but not for merges landed by the github-actions app
+# via native auto-merge (observed fleet-wide, e.g. qyl #452–#456, #477–#479
+# survived; user-merged #476 was deleted). This job closes that gap for the
+# automation prefixes. HEAD_REF is passed via env, never interpolated into
+# the script, so a crafted branch name cannot inject into the shell under
+# pull_request_target's write token.
+#
 # Branch-prefix policy:
 #   - claude/  — Claude Code agents
 #   - copilot/ — GitHub Copilot agents when enabled
@@ -21,7 +29,7 @@ name: Auto-merge
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
 
 permissions:
   contents: write
@@ -31,6 +39,7 @@ jobs:
   enable-auto-merge:
     runs-on: ubuntu-latest
     if: |
+      github.event.action != 'closed' &&
       github.event.pull_request.draft == false && (
         startsWith(github.event.pull_request.head.ref, 'claude/') ||
         startsWith(github.event.pull_request.head.ref, 'copilot/')
@@ -40,3 +49,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --repo ${{ github.repository }}
+
+  delete-merged-branch:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository && (
+        startsWith(github.event.pull_request.head.ref, 'claude/') ||
+        startsWith(github.event.pull_request.head.ref, 'copilot/')
+      )
+    steps:
+      - name: Delete merged head branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$HEAD_REF" \
+            || echo "head branch already deleted"
