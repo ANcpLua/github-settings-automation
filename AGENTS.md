@@ -23,9 +23,9 @@ automation.
 
 ## Review Guidelines
 
-Follow `code_review.md` for local reviews. Reviewer findings (CodeRabbit,
-Copilot, Codex) are advisory input for the human or their interactive agent —
-nothing acts on them automatically.
+Follow `code_review.md` for local reviews. Reviewer findings (Codex, Claude)
+are advisory input for the human or their interactive agent — nothing acts on
+them automatically.
 
 Do not recreate reviewer-triage workflows with GitHub Actions comments, and do
 not add workflows that post commands at reviewer bots.

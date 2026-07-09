@@ -23,7 +23,6 @@
 #
 # Branch-prefix policy:
 #   - claude/  — Claude Code agents
-#   - copilot/ — GitHub Copilot agents when enabled
 
 name: Auto-merge
 
@@ -40,10 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event.action != 'closed' &&
-      github.event.pull_request.draft == false && (
-        startsWith(github.event.pull_request.head.ref, 'claude/') ||
-        startsWith(github.event.pull_request.head.ref, 'copilot/')
-      )
+      github.event.pull_request.draft == false &&
+      startsWith(github.event.pull_request.head.ref, 'claude/')
     steps:
       - name: Enable native auto-merge (squash)
         env:
@@ -55,10 +52,8 @@ jobs:
     if: |
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository && (
-        startsWith(github.event.pull_request.head.ref, 'claude/') ||
-        startsWith(github.event.pull_request.head.ref, 'copilot/')
-      )
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'claude/')
     steps:
       - name: Delete merged head branch
         env:
