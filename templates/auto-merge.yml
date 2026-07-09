@@ -23,6 +23,12 @@
 #
 # Branch-prefix policy:
 #   - claude/  — Claude Code agents
+#
+# Both jobs require head.repo.full_name == github.repository. A branch prefix
+# is chosen by whoever opens the PR, and pull_request_target runs with the base
+# repo's write token even for fork PRs — so the prefix alone gates nothing.
+# Without the same-repo check, any fork can push a `claude/…` branch and land
+# it on main unreviewed.
 
 name: Auto-merge
 
@@ -40,6 +46,7 @@ jobs:
     if: |
       github.event.action != 'closed' &&
       github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'claude/')
     steps:
       - name: Enable native auto-merge (squash)
