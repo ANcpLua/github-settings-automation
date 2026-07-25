@@ -367,12 +367,194 @@ def check_path(repos: list[str], entry: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Staleness checks
+#
+# Cross-repo drift asks "do these repos agree with each other". Staleness asks
+# a different question: "does this repo agree with an external source of truth".
+# Two failures motivated this, both silent:
+#
+#   * a registry pin (SemConvGenAiRef) sat 9 upstream commits behind, so a new
+#     upstream attribute simply did not exist in the generated surface, and
+#     nothing said the pin was old;
+#   * a version was bumped in Directory.Build.props and merged, but the publish
+#     workflow was dispatch-only, so the version was never pushed — repo state
+#     said released while the registry disagreed.
+#
+# Neither is detectable by comparing repos to each other. Both are trivially
+# detectable against the upstream ref and the package registry respectively.
+# ---------------------------------------------------------------------------
+
+def read_xml_property(repo: str, path: str, prop: str) -> str | None:
+    """Read a single MSBuild property value out of a props file in a repo."""
+    data = fetch_file(repo, path)
+    if data is None:
+        return None
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return None
+    value = root.findtext(f".//{prop}")
+    return value.strip() if value and value.strip() else None
+
+
+def upstream_head(repo: str, branch: str) -> str | None:
+    """Commit SHA at the tip of an upstream branch."""
+    ref = gh_api(f"/repos/{repo}/commits/{branch}")
+    return ref.get("sha") if ref else None
+
+
+def commits_behind(repo: str, base: str, head: str) -> int | None:
+    """How many commits `base` is behind `head` in an upstream repo."""
+    cmp = gh_api(f"/repos/{repo}/compare/{base}...{head}")
+    if not cmp:
+        return None
+    return cmp.get("ahead_by")
+
+
+def check_stale_pin(entry: dict) -> dict:
+    """A pinned upstream commit that upstream has since moved past."""
+    finding = {
+        "kind": "stale_pin",
+        "label": entry.get("label") or f"{entry['repo']}:{entry['property']}",
+        "repo": entry["repo"],
+        "path": entry["path"],
+        "property": entry["property"],
+        "upstream": entry["upstream"],
+        "drift": False,
+    }
+    pinned = read_xml_property(entry["repo"], entry["path"], entry["property"])
+    if not pinned:
+        finding["error"] = f"could not read {entry['property']} from {entry['path']}"
+        return finding
+    finding["pinned"] = pinned
+
+    branch = entry.get("branch", "main")
+    head = upstream_head(entry["upstream"], branch)
+    if not head:
+        finding["error"] = f"could not resolve {entry['upstream']}@{branch}"
+        return finding
+    finding["upstream_head"] = head
+
+    if pinned == head:
+        return finding
+
+    behind = commits_behind(entry["upstream"], pinned, head)
+    finding["behind"] = behind
+    # An unknown distance still means the pin != HEAD, which is the signal.
+    threshold = int(entry.get("max_commits_behind", 0))
+    finding["drift"] = behind is None or behind > threshold
+    return finding
+
+
+def registry_versions(kind: str, package: str) -> list[str] | None:
+    """Published versions for a package. None when the lookup itself failed."""
+    if kind == "nuget":
+        url = f"https://api.nuget.org/v3-flatcontainer/{package.lower()}/index.json"
+        key = "versions"
+    elif kind == "npm":
+        url = f"https://registry.npmjs.org/{package}"
+        key = "versions"
+    else:
+        return None
+    res = subprocess.run(
+        ["curl", "-sS", "--retry", "2", "--retry-delay", "3", "--fail-with-body", url],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        return None
+    try:
+        doc = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return None
+    versions = doc.get(key)
+    if isinstance(versions, dict):      # npm returns an object
+        return list(versions.keys())
+    return versions if isinstance(versions, list) else None
+
+
+def check_unpublished_version(entry: dict) -> dict:
+    """A version committed to the repo that never reached the registry."""
+    finding = {
+        "kind": "unpublished_version",
+        "label": entry.get("label") or f"{entry['repo']}:{entry['package']}",
+        "repo": entry["repo"],
+        "path": entry["path"],
+        "property": entry.get("property", "Version"),
+        "registry": entry.get("registry", "nuget"),
+        "package": entry["package"],
+        "drift": False,
+    }
+    declared = read_xml_property(entry["repo"], entry["path"], finding["property"])
+    if not declared:
+        finding["error"] = f"could not read {finding['property']} from {entry['path']}"
+        return finding
+    finding["declared"] = declared
+
+    published = registry_versions(finding["registry"], entry["package"])
+    if published is None:
+        # Do not claim "unpublished" because the registry lookup broke.
+        finding["error"] = f"{finding['registry']} lookup failed for {entry['package']}"
+        return finding
+
+    finding["latest_published"] = published[-1] if published else None
+    finding["drift"] = declared not in published
+    return finding
+
+
+STALENESS_CHECKS = {
+    "stale_pin": check_stale_pin,
+    "unpublished_version": check_unpublished_version,
+}
+
+
+def check_staleness(entry: dict) -> dict:
+    kind = entry.get("kind")
+    fn = STALENESS_CHECKS.get(kind)
+    if not fn:
+        return {"kind": kind, "label": entry.get("label", "?"), "drift": False,
+                "error": f"unknown staleness kind: {kind!r}"}
+    try:
+        return fn(entry)
+    except Exception as e:
+        return {"kind": kind, "label": entry.get("label", "?"), "drift": False,
+                "error": f"{type(e).__name__}: {e}"}
+
+
+# ---------------------------------------------------------------------------
 # Output renderers
 # ---------------------------------------------------------------------------
 
-def write_markdown(findings: list[dict], path: str) -> int:
-    """Write markdown report. Return drift count."""
+def write_staleness_markdown(findings: list[dict]) -> list[str]:
+    """Render staleness findings. Listed before path drift: a stale pin or an
+    unpublished version is a concrete action, not a divergence to eyeball."""
+    if not findings:
+        return []
+    stale = [f for f in findings if f.get("drift")]
+    errored = [f for f in findings if f.get("error")]
+    lines = ["## Staleness\n",
+             f"- Checks: **{len(findings)}** — stale: **{len(stale)}**, errors: **{len(errored)}**\n"]
+    for f in stale:
+        if f["kind"] == "stale_pin":
+            behind = f.get("behind")
+            behind_txt = f"{behind} commits behind" if behind is not None else "distance unknown"
+            lines.append(f"- **stale pin** `{f['label']}` — {f['path']} pins "
+                         f"`{f.get('pinned','?')[:12]}`, {f['upstream']} is at "
+                         f"`{f.get('upstream_head','?')[:12]}` ({behind_txt})")
+        elif f["kind"] == "unpublished_version":
+            lines.append(f"- **unpublished version** `{f['label']}` — {f['path']} declares "
+                         f"`{f.get('declared')}`, not on {f['registry']} "
+                         f"(latest published: `{f.get('latest_published')}`)")
+    for f in errored:
+        lines.append(f"- _check error_ `{f.get('label','?')}`: {f['error']}")
+    lines.append("")
+    return lines
+
+
+def write_markdown(findings: list[dict], path: str, staleness: list[dict] | None = None) -> int:
+    """Write markdown report. Return count of actionable findings."""
+    staleness = staleness or []
     lines: list[str] = ["# Config Drift Report\n"]
+    lines += write_staleness_markdown(staleness)
     total = len(findings)
     drift = [f for f in findings if f.get("drift")]
     clean = [f for f in findings if not f.get("drift") and f.get("present_in", 0) > 0]
@@ -414,14 +596,16 @@ def write_markdown(findings: list[dict], path: str) -> int:
         lines.append("")
 
     Path(path).write_text("\n".join(lines) + "\n")
-    return len(drift)
+    return len(drift) + len([f for f in staleness if f.get("drift")])
 
 
-def write_manifest(findings: list[dict], path: str) -> None:
-    """Machine-readable: which repos have which semantic cluster for which path."""
+def write_manifest(findings: list[dict], path: str, staleness: list[dict] | None = None) -> None:
+    """Machine-readable: which repos have which semantic cluster for which path,
+    plus staleness findings against external sources of truth."""
     Path(path).write_text(json.dumps({
-        "version": 1,
+        "version": 2,
         "findings": findings,
+        "staleness": staleness or [],
     }, indent=2))
 
 
@@ -474,12 +658,27 @@ def main() -> None:
             print(f"checking {entry['path']} across {len(repos)} repos...", file=sys.stderr)
         findings.append(check_path(repos, entry))
 
-    drift_count = write_markdown(findings, args.output)
-    write_manifest(findings, args.manifest)
+    # `staleness:` is optional — an older policy file stays valid.
+    staleness_entries = policy.get("staleness") or []
+    if not isinstance(staleness_entries, list):
+        print("policy 'staleness' must be a list", file=sys.stderr)
+        sys.exit(2)
+    staleness: list[dict] = []
+    for entry in staleness_entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("kind"), str):
+            print(f"staleness entry must be a mapping with a 'kind' key: {entry!r}", file=sys.stderr)
+            sys.exit(2)
+        if not args.quiet:
+            print(f"checking staleness {entry.get('label') or entry['kind']}...", file=sys.stderr)
+        staleness.append(check_staleness(entry))
+
+    drift_count = write_markdown(findings, args.output, staleness)
+    write_manifest(findings, args.manifest, staleness)
 
     if not args.quiet:
         print(f"\n{len(findings)} paths checked across {len(repos)} repos", file=sys.stderr)
-        print(f"{drift_count} paths have drift", file=sys.stderr)
+        print(f"{len(staleness)} staleness checks run", file=sys.stderr)
+        print(f"{drift_count} actionable findings", file=sys.stderr)
         print(f"report → {args.output}", file=sys.stderr)
         print(f"manifest → {args.manifest}", file=sys.stderr)
 

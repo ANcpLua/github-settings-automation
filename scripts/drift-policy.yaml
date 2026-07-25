@@ -31,6 +31,50 @@
 nuget_publishers:
   - ANcpLua/Qyl.OpenTelemetry.SemanticConventions
 
+# `staleness:` — checks against an EXTERNAL source of truth, not against other
+# repos. Cross-repo drift cannot see either of these, and both bit us on
+# 2026-07-25:
+#   * the GenAI registry pin was 9 upstream commits behind, so a new upstream
+#     attribute was simply absent from the generated C# surface;
+#   * Qyl.OpenTelemetry.AutoInstrumentation had a version bumped and merged that
+#     was never published, because its publish workflow was dispatch-only, so
+#     consumers silently stayed two releases back.
+#
+# kinds:
+#   stale_pin            — an MSBuild property pinning an upstream commit, compared
+#                          against that upstream repo's branch head.
+#                          max_commits_behind (default 0) sets the tolerance.
+#   unpublished_version  — a version property compared against a package registry
+#                          index (registry: nuget | npm). A failed registry lookup
+#                          reports an error rather than claiming "unpublished".
+staleness:
+  - kind: stale_pin
+    label: semconv GenAI registry pin
+    repo: ANcpLua/Qyl.OpenTelemetry.SemanticConventions
+    path: Version.props
+    property: SemConvGenAiRef
+    upstream: open-telemetry/semantic-conventions-genai
+    branch: main
+    # Upstream merges dependabot noise most weeks; only shout once real drift
+    # accumulates, so the signal stays worth reading.
+    max_commits_behind: 5
+
+  - kind: unpublished_version
+    label: AutoInstrumentation released version
+    repo: ANcpLua/Qyl.OpenTelemetry.AutoInstrumentation
+    path: Directory.Build.props
+    property: Version
+    registry: nuget
+    package: Qyl.OpenTelemetry.AutoInstrumentation
+
+  - kind: unpublished_version
+    label: semconv released version
+    repo: ANcpLua/Qyl.OpenTelemetry.SemanticConventions
+    path: Directory.Build.props
+    property: VersionPrefix
+    registry: nuget
+    package: Qyl.OpenTelemetry.SemanticConventions
+
 repos:
   # ANcpLua framework
   - ANcpLua/ANcpLua.NET.Sdk

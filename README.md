@@ -1,12 +1,52 @@
 # github-settings-automation
 
-Control plane for reproducible repository settings across `ANcpLua/*`.
+**Status: enforcement is OFF. Detection is ON.**
 
-The `O-ANcppLua` organization was deleted; its enforcement job, bootstrap steps,
-drift watchlist entries, and `REPO_SETTINGS_PAT_ORG` secret are gone with it. Every
-run of `enforce-repo-settings.yml` had been failing on `gh api /orgs/O-ANcppLua`
-(HTTP 404) since the deletion, while the `ANcpLua/*` half kept succeeding — so the
-workflow reported failure even though the sync it exists to perform was working.
+This repo does two different things, and only one of them is currently live.
+
+| Half | What it does | State |
+|---|---|---|
+| **Enforcement** — `enforce-repo-settings.yml`, `bootstrap-profile-repos.yml` | *Writes* to your other repos: pushes canonical workflow files, branch protection, repo settings, secrets | **disabled**, and its tokens are revoked |
+| **Detection** — `drift-check.yml` | *Reads* your repos and opens one `config-drift` issue here when something is off. Changes nothing | **live**, weekly Monday 06:00 UTC |
+
+Detection needs no personal token — it runs on the automatic `GITHUB_TOKEN` — so
+it keeps working with enforcement switched off. That is the whole point of the
+split: keep the part that tells you something is wrong, drop the part that
+reaches into a dozen repos and rewrites files on a cron.
+
+## Why enforcement is off
+
+It was writing canonical templates into repos on a weekly schedule. That is a lot
+of blast radius for a one-person fleet, and it produced a specific trap: a synced
+file carries a "DO NOT EDIT, this will be overwritten" banner, so a local fix gets
+skipped or silently reverted — even when the sync itself has stopped working. The
+`O-ANcppLua` organization was also deleted, which failed every run at step one for
+months while the other half quietly kept succeeding.
+
+If you are looking at a consumer repo and see a canonical banner: **it is not
+being enforced right now.** Edit the file.
+
+## Turning enforcement back on
+
+Both tokens are revoked, so the write workflows cannot run even if re-enabled.
+To restore them:
+
+1. **Mint a fine-grained PAT** on the `ANcpLua` account with, across all
+   repositories: `Administration: RW`, `Contents: RW`, `Pull requests: RW`,
+   `Workflows: RW`, `Issues: RW`.
+2. **Store it** as the `REPO_SETTINGS_PAT_USER` secret on this repo
+   (`gh secret set REPO_SETTINGS_PAT_USER --repo ANcpLua/github-settings-automation`).
+3. **Add `NUGET_USER`** — the nuget.org username, not an API key — if you want the
+   NuGet publishing sync. Without it the sync step runs but cannot set the secret
+   in target repos.
+4. **Re-enable the workflows:**
+   `gh workflow enable enforce-repo-settings.yml --repo ANcpLua/github-settings-automation`
+   (same for `bootstrap-profile-repos.yml`).
+5. **Dry-run first:** dispatch with `sweep_mode: recent` so it touches only repos
+   created in the last 8 days, and read the log before letting the weekly cron
+   loose on `topic` mode.
+
+Do not reintroduce anything scoped to `O-ANcppLua`; that org is gone.
 
 ## Scope
 
@@ -98,8 +138,8 @@ required.
 
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
-| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and workflow/config sync |
-| `NUGET_USER` | n/a | nuget.org username, not an API key | central NuGet publishing sync |
+| `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) — **revoked; enforcement disabled** | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and workflow/config sync |
+| `NUGET_USER` | n/a — **not set** | nuget.org username, not an API key | central NuGet publishing sync |
 
 Both PATs need `Contents: Read and write` because sync steps write files through
 the repository contents API.

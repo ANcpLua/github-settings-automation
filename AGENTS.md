@@ -1,8 +1,21 @@
 # Repository Agent Guidance
 
-This repository is the control plane for `ANcpLua/*` repository settings. The
-`O-ANcppLua` organization no longer exists — do not reintroduce org-scoped jobs,
-steps, or the `REPO_SETTINGS_PAT_ORG` secret for it. Keep changes operational, evidence-backed, and scoped to fleet
+This repository is the control plane for `ANcpLua/*` repository settings, and it is
+deliberately half-disabled: **detection runs, enforcement does not.**
+
+- `drift-check.yml` reads repos and opens a `config-drift` issue. Live, and it must
+  stay token-free (`DRIFT_CHECK_TOKEN || GITHUB_TOKEN`) so revoked PATs cannot break it.
+- `enforce-repo-settings.yml` and `bootstrap-profile-repos.yml` write to other repos.
+  Disabled, tokens revoked. Do not re-enable as a side effect of unrelated work — see
+  the README's restore procedure.
+
+The `O-ANcppLua` organization no longer exists. Do not reintroduce org-scoped jobs,
+steps, or the `REPO_SETTINGS_PAT_ORG` secret.
+
+When adding a check, prefer detection over enforcement. A report the owner reads beats
+a cron that rewrites a dozen repos, and the canonical-banner trap is why: a file
+stamped "DO NOT EDIT, will be overwritten" steers people away from valid local fixes
+even after the sync that justified the banner has stopped. Keep changes operational, evidence-backed, and scoped to fleet
 automation.
 
 ## Hard Rules
