@@ -1,7 +1,8 @@
 # Repository Agent Guidance
 
-This repository is the control plane for ANcpLua and O-ANcppLua repository
-settings. Keep changes operational, evidence-backed, and scoped to fleet
+This repository is the control plane for `ANcpLua/*` repository settings. The
+`O-ANcppLua` organization no longer exists — do not reintroduce org-scoped jobs,
+steps, or the `REPO_SETTINGS_PAT_ORG` secret for it. Keep changes operational, evidence-backed, and scoped to fleet
 automation.
 
 ## Hard Rules

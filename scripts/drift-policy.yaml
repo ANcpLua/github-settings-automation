@@ -40,8 +40,6 @@ repos:
   - ANcpLua/ANcpLua.OpenTelemetry.SemanticConventions.Analyzers
 
   # OTel-adjacent
-  - O-ANcppLua/ANcpLua.OtelConventions.Api
-  - O-ANcppLua/Nuke.OpenTelemetry.Conventions
   - ANcpLua/typespec-otel-semconv
 
   # Apps and libs
@@ -56,7 +54,6 @@ repos:
   - ANcpLua/ancplua-docs
 
   # qyl — to enable later
-  # - O-ANcppLua/qyl
 
 watch:
   # Renovate + dependency-bot configs

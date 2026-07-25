@@ -20,16 +20,6 @@ jobs:
           fi
           gh api /user --jq .login
 
-      - name: Validate org PAT
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-        run: |
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "REPO_SETTINGS_PAT_ORG secret is missing"
-            exit 1
-          fi
-          gh api /orgs/O-ANcppLua --jq .login
-
       - name: Personal profile README repo
         env:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_USER }}
@@ -46,18 +36,3 @@ jobs:
             exit 1
           fi
 
-      - name: Org public overview repo
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SETTINGS_PAT_ORG }}
-        run: |
-          set -uo pipefail
-          if gh repo view O-ANcppLua/.github >/dev/null 2>&1; then
-            echo "O-ANcppLua/.github already exists"
-          elif gh repo create O-ANcppLua/.github --public --add-readme --description "Organization profile README"; then
-            echo "Created O-ANcppLua/.github"
-          elif gh repo view O-ANcppLua/.github >/dev/null 2>&1; then
-            echo "O-ANcppLua/.github exists (create reported error but repo is present)"
-          else
-            echo "Failed to ensure O-ANcppLua/.github exists"
-            exit 1
-          fi

@@ -1,7 +1,12 @@
 # github-settings-automation
 
-Control plane for reproducible repository and organization settings across
-`ANcpLua/*` and `O-ANcppLua/*`.
+Control plane for reproducible repository settings across `ANcpLua/*`.
+
+The `O-ANcppLua` organization was deleted; its enforcement job, bootstrap steps,
+drift watchlist entries, and `REPO_SETTINGS_PAT_ORG` secret are gone with it. Every
+run of `enforce-repo-settings.yml` had been failing on `gh api /orgs/O-ANcppLua`
+(HTTP 404) since the deletion, while the `ANcpLua/*` half kept succeeding — so the
+workflow reported failure even though the sync it exists to perform was working.
 
 ## Scope
 
@@ -43,7 +48,7 @@ they are wanted per-repo review tuning and are never touched by cleanup.
 
 | Workflow | Trigger | Effect |
 |---|---|---|
-| `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` and `O-ANcppLua/.github` if missing. Does not touch `O-ANcppLua/.github-private`. |
+| `bootstrap-profile-repos.yml` | manual dispatch | Creates `ANcpLua/ANcpLua` if missing. |
 | `enforce-repo-settings.yml` | weekly cron (Mon 17:00 UTC) + dispatch | Targets repos carrying `qyl` or `ancplua-fleet` in `topic` mode. Enables `delete_branch_on_merge` and `allow_auto_merge`; removes retired Codacy/triage-bot/coderabbit-autofix files; syncs branch-protection overrides; syncs opted-in NuGet publishing; and syncs `auto-merge.yml` where already present. |
 | `drift-check.yml` | weekly cron (Mon 06:00 UTC) + dispatch | Runs the semantic drift detector over the watchlist in `scripts/drift-policy.yaml` and opens or updates a `config-drift` issue when drift is found. |
 
@@ -94,7 +99,6 @@ required.
 | Secret | Resource owner | Permissions | Used by |
 |---|---|---|---|
 | `REPO_SETTINGS_PAT_USER` | `ANcpLua` (user) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories | personal-side enforcement and workflow/config sync |
-| `REPO_SETTINGS_PAT_ORG` | `O-ANcppLua` (org) | Repository: `Administration: Read and write` + `Contents: Read and write` + `Pull requests: Read and write` + `Workflows: Read and write` + `Issues: Read and write` on all repositories + Organization: `Administration: Read and write` | org-side enforcement and workflow/config sync |
 | `NUGET_USER` | n/a | nuget.org username, not an API key | central NuGet publishing sync |
 
 Both PATs need `Contents: Read and write` because sync steps write files through
