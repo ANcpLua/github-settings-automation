@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "ANcpLua framework — shared Renovate baseline (used by ANcpLua.NET.Sdk, ANcpLua.Roslyn.Utilities, ANcpLua.Analyzers, ANcpLua.Agents)",
+  "description": "ANcpLua shared Renovate baseline for every repository that extends github>ANcpLua/github-settings-automation",
   "extends": [
     "config:best-practices",
     ":semanticCommits",
@@ -17,6 +17,19 @@
   "prConcurrentLimit": 5,
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Version.props: a <!-- renovate: datasource=nuget depName=Package.Id --> comment directly above an MSBuild version property makes that property an updatable dependency",
+      "managerFilePatterns": [
+        "/(^|/)Version\\.props$/"
+      ],
+      "matchStrings": [
+        "<!--\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+)\\s+depName=(?<depName>\\S+?)(?:\\s+packageName=(?<packageName>\\S+?))?(?:\\s+versioning=(?<versioning>\\S+?))?\\s*-->\\s*<[A-Za-z_][\\w.-]*>(?<currentValue>\\d[^<\\s]*)</[A-Za-z_][\\w.-]*>"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}{{#if (equals datasource 'nuget')}}nuget{{else}}semver-coerced{{/if}}{{/if}}"
+    }
+  ],
   "packageRules": [
     {
       "description": "Hygiene: digest pins + lockfile maintenance — content-locking, automerge always",
@@ -38,9 +51,10 @@
       "automergeType": "pr"
     },
     {
-      "description": "npm devDependencies — minor bumps automerge (build-time only, no runtime risk)",
+      "description": "npm/bun devDependencies — minor bumps automerge (build-time only, no runtime risk)",
       "matchManagers": [
-        "npm"
+        "npm",
+        "bun"
       ],
       "matchDepTypes": [
         "devDependencies"
@@ -52,9 +66,10 @@
       "automergeType": "pr"
     },
     {
-      "description": "Block unstable npm versions by default — alpha/beta/rc/preview/pre/dev/canary/next/nightly",
+      "description": "Block unstable npm/bun versions by default — alpha/beta/rc/preview/pre/dev/canary/next/nightly",
       "matchManagers": [
-        "npm"
+        "npm",
+        "bun"
       ],
       "allowedVersions": "!/(?:alpha|beta|rc|preview|pre|dev|canary|next|nightly)/i"
     },
